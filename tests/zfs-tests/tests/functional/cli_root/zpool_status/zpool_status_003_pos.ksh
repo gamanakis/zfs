@@ -53,7 +53,7 @@ log_onexit cleanup
 truncate -s $MINVDEVSIZE $TESTDIR/vdev_a
 log_must zpool create -f $TESTPOOL2 $TESTDIR/vdev_a
 
-log_must mkfile 10m /$TESTPOOL2/10m_file
+log_must fio --rw=write --name=job --size=10M --filename=/$TESTPOOL2/10m_file
 log_must zinject -t data -e checksum -f 100 -am /$TESTPOOL2/10m_file
 
 # Try to read the 2nd megabyte of 10m_file

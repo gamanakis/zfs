@@ -58,7 +58,7 @@ if [[ "$state" != "disabled" ]]; then
 	log_fail "head_errlog has state $state"
 fi
 
-log_must mkfile 10m /$TESTPOOL2/10m_file
+log_must fio --rw=write --name=job --size=10M --filename=/$TESTPOOL2/10m_file
 log_must zinject -t data -e checksum -f 100 -am /$TESTPOOL2/10m_file
 
 # Try to read the file
