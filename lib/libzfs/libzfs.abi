@@ -1896,7 +1896,8 @@
       <enumerator name='SPA_FEATURE_ZSTD_COMPRESS' value='32'/>
       <enumerator name='SPA_FEATURE_DRAID' value='33'/>
       <enumerator name='SPA_FEATURE_ZILSAXATTR' value='34'/>
-      <enumerator name='SPA_FEATURES' value='35'/>
+      <enumerator name='SPA_FEATURE_HEAD_ERRLOG' value='35'/>
+      <enumerator name='SPA_FEATURES' value='36'/>
     </enum-decl>
     <typedef-decl name='spa_feature_t' type-id='33ecb627' id='d6618c78'/>
     <enum-decl name='zfeature_flags' id='6db816a4'>
