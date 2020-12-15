@@ -2097,10 +2097,29 @@ dsl_crypto_recv_raw_objset_sync(dsl_dataset_t *ds, dmu_objset_type_t ostype,
 	 */
 	arc_release(os->os_phys_buf, &os->os_phys_buf);
 	bcopy(portable_mac, os->os_phys->os_portable_mac, ZIO_OBJSET_MAC_LEN);
+	bzero(os->os_phys->os_local_mac, ZIO_OBJSET_MAC_LEN);
+
+	/*
+	 * Needed otherwise dnode_sync() panics, L634
+	 */
+	dnode_special_close(&os->os_projectused_dnode);
+	dnode_special_close(&os->os_userused_dnode);
+	dnode_special_close(&os->os_groupused_dnode);
+
+	/*
+	 * Needed for zeroing out the local_mac
+	 */
+	bzero(&os->os_phys->os_userused_dnode, sizeof (dnode_phys_t));
+	bzero(&os->os_phys->os_groupused_dnode, sizeof (dnode_phys_t));
+	bzero(&os->os_phys->os_projectused_dnode, sizeof (dnode_phys_t));
+
+	/*
+	 * Needed for triggering recalculation of metadata
+	 */
 	os->os_phys->os_flags &= ~OBJSET_FLAG_USERACCOUNTING_COMPLETE;
 	os->os_phys->os_flags &= ~OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE;
 	os->os_flags = os->os_phys->os_flags;
-	bzero(os->os_phys->os_local_mac, ZIO_OBJSET_MAC_LEN);
+
 	os->os_next_write_raw[tx->tx_txg & TXG_MASK] = B_TRUE;
 
 	/* set metadnode compression and checksum */

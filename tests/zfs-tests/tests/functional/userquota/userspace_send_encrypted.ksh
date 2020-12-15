@@ -92,6 +92,8 @@ log_must eval "echo password | zfs load-key $ENC_TARGET"
 log_must zfs mount $ENC_TARGET
 sync
 
+sleep 5
+
 src_uspace=$(( $(zfs userspace -Hp $ENC_SOURCE | grep $QUSER1 | \
 	awk '{print $4}')/1024/1024))
 tgt_uspace=$(( $(zfs userspace -Hp $ENC_TARGET | grep $QUSER1 | \
