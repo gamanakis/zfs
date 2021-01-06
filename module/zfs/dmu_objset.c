@@ -1086,6 +1086,7 @@ dmu_objset_create_impl_dnstats(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	 */
 	if (dmu_objset_userused_enabled(os) &&
 	    (!os->os_encrypted || !dmu_objset_is_receiving(os))) {
+		os->os_phys->os_flags &= ~OBJSET_FLAG_USERACCOUNTING_INVALID;
 		os->os_phys->os_flags |= OBJSET_FLAG_USERACCOUNTING_COMPLETE;
 		if (dmu_objset_userobjused_enabled(os)) {
 			ds->ds_feature_activation[
@@ -2351,6 +2352,7 @@ dmu_objset_userspace_upgrade_cb(objset_t *os)
 		return (err);
 
 	os->os_flags |= OBJSET_FLAG_USERACCOUNTING_COMPLETE;
+	os->os_flags &= ~OBJSET_FLAG_USERACCOUNTING_INVALID;
 	txg_wait_synced(dmu_objset_pool(os), 0);
 	return (0);
 }
@@ -2389,6 +2391,7 @@ dmu_objset_id_quota_upgrade_cb(objset_t *os)
 		return (err);
 
 	os->os_flags |= OBJSET_FLAG_USERACCOUNTING_COMPLETE;
+	os->os_flags &= ~OBJSET_FLAG_USERACCOUNTING_INVALID;
 	if (dmu_objset_userobjused_enabled(os))
 		os->os_flags |= OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE;
 	if (dmu_objset_projectquota_enabled(os))

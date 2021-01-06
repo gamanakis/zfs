@@ -62,6 +62,7 @@ struct dmu_tx;
 #define	OBJSET_FLAG_USERACCOUNTING_COMPLETE	(1ULL << 0)
 #define	OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE	(1ULL << 1)
 #define	OBJSET_FLAG_PROJECTQUOTA_COMPLETE	(1ULL << 2)
+#define	OBJSET_FLAG_USERACCOUNTING_INVALID	(1ULL << 3)
 
 /*
  * This mask defines the set of flags which are "portable", meaning
