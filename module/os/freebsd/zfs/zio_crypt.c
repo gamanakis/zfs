@@ -1077,10 +1077,20 @@ zio_crypt_do_objset_hmacs(zio_crypt_key_t *key, void *data, uint_t datalen,
 	bcopy(raw_portable_mac, portable_mac, ZIO_OBJSET_MAC_LEN);
 
 	/*
+	 * This is necessary here as we check next whether
+	 * OBJSET_FLAG_USERACCOUNTING_INVALID is set in order to
+	 * decide if the local_mac should be zeroed out.
+	 */
+	intval = osp->os_flags;
+	if (should_bswap)
+		intval = BSWAP_64(intval);
+
+	/*
 	 * The local MAC protects the user, group and project accounting.
 	 * If these objects are not present, the local MAC is zeroed out.
 	 */
-	if ((datalen >= OBJSET_PHYS_SIZE_V3 &&
+	if (osp->os_flags & OBJSET_FLAG_USERACCOUNTING_INVALID ||
+	    (datalen >= OBJSET_PHYS_SIZE_V3 &&
 	    osp->os_userused_dnode.dn_type == DMU_OT_NONE &&
 	    osp->os_groupused_dnode.dn_type == DMU_OT_NONE &&
 	    osp->os_projectused_dnode.dn_type == DMU_OT_NONE) ||
