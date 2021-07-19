@@ -5852,8 +5852,15 @@ arc_read_done(zio_t *zio)
 		kmem_free(acb, sizeof (arc_callback_t));
 	}
 
-	if (freeable)
+	if (freeable) {
+		if (HDR_HAS_L2HDR(hdr) && !HDR_EMPTY(hdr))
+			mutex_enter(hash_lock);
+
 		arc_hdr_destroy(hdr);
+
+		if (MUTEX_HELD(hash_lock))
+			mutex_exit(hash_lock);
+	}
 }
 
 /*
