@@ -57,14 +57,6 @@
 #include <sys/dmu_objset.h>
 #include <sys/dbuf.h>
 
-#ifdef _KERNEL
-static int check_filesystem(spa_t *spa, uint64_t head_ds,
-    zbookmark_err_phys_t *zep, uint64_t *count, void *addr,
-    boolean_t only_count);
-static uint64_t get_errlog_size(spa_t *spa, uint64_t spa_err_obj);
-static uint64_t get_errlist_size(spa_t *spa, avl_tree_t *tree);
-#endif
-
 /*
  * Convert a bookmark to a string.
  */
@@ -121,7 +113,7 @@ name_to_errphys(char *buf, zbookmark_err_phys_t *zep)
 }
 
 static void
-zeb_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
+zep_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
 {
 	zb->zb_objset = dataset;
 	zb->zb_object = zep->zb_object;
@@ -149,14 +141,15 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	int err = dsl_dataset_hold_obj(dp, ds_obj, FTAG, &ds);
 	if (err != 0) {
 		dsl_pool_config_exit(dp, FTAG);
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 	}
+	ASSERT3P(head_dataset_id, !=, NULL);
 	*head_dataset_id = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
 	if (dmu_objset_from_ds(ds, &os) != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 	}
 
 	dnode_t *dn;
@@ -165,7 +158,7 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 	}
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
@@ -177,7 +170,7 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 		dnode_rele(dn, FTAG);
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 	}
 
 	zep->zb_birth = bp.blk_birth;
@@ -232,50 +225,6 @@ spa_log_error(spa_t *spa, const zbookmark_phys_t *zb)
 	mutex_exit(&spa->spa_errlist_lock);
 }
 
-/*
- * Return the number of errors currently in the error log.  This is actually the
- * sum of both the last log and the current log, since we don't know the union
- * of these logs until we reach userland.
- */
-uint64_t
-spa_get_errlog_size(spa_t *spa)
-{
-	uint64_t total = 0;
-	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
-		uint64_t count;
-		mutex_enter(&spa->spa_errlog_lock);
-		if (spa->spa_errlog_scrub != 0 &&
-		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
-		    &count) == 0)
-			total += count;
-
-		if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
-		    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
-		    &count) == 0)
-			total += count;
-		mutex_exit(&spa->spa_errlog_lock);
-
-		mutex_enter(&spa->spa_errlist_lock);
-		total += avl_numnodes(&spa->spa_errlist_last);
-		total += avl_numnodes(&spa->spa_errlist_scrub);
-		mutex_exit(&spa->spa_errlist_lock);
-
-	} else {
-#ifdef _KERNEL
-		mutex_enter(&spa->spa_errlog_lock);
-		total += get_errlog_size(spa, spa->spa_errlog_scrub);
-		total += get_errlog_size(spa, spa->spa_errlog_last);
-		mutex_exit(&spa->spa_errlog_lock);
-
-		mutex_enter(&spa->spa_errlist_lock);
-		total += get_errlist_size(spa, &spa->spa_errlist_last);
-		total += get_errlist_size(spa, &spa->spa_errlist_scrub);
-		mutex_exit(&spa->spa_errlist_lock);
-#endif
-	}
-	return (total);
-}
-
 #ifdef _KERNEL
 static int
 find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
@@ -283,14 +232,14 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
 {
 	objset_t *os;
 	if (dmu_objset_from_ds(ds, &os) != 0) {
-		return (ENOENT);
+		return (SET_ERROR(ENOENT));
 	}
 
 	dnode_t *dn;
 	blkptr_t bp;
 
 	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0) {
-		return (ENOENT);
+		return (SET_ERROR(ENOENT));
 	}
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
@@ -300,54 +249,12 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
 	if (err != 0 || BP_IS_HOLE(&bp)) {
 		rw_exit(&dn->dn_struct_rwlock);
 		dnode_rele(dn, FTAG);
-		return (ENOENT);
+		return (SET_ERROR(ENOENT));
 	}
 
 	*birth_txg = bp.blk_birth;
 	rw_exit(&dn->dn_struct_rwlock);
 	dnode_rele(dn, FTAG);
-	return (0);
-}
-
-static int
-check_clones(spa_t *spa, uint64_t *snapshot, uint64_t snapshot_count,
-    uint64_t zap_clone, zbookmark_err_phys_t *zep, uint64_t *count,
-    void *addr, boolean_t only_count)
-{
-	zap_cursor_t zc;
-	zap_attribute_t za;
-
-	for (zap_cursor_init(&zc, spa->spa_meta_objset, zap_clone);
-	    zap_cursor_retrieve(&zc, &za) == 0;
-	    zap_cursor_advance(&zc)) {
-
-		dsl_pool_t *dp = spa->spa_dsl_pool;
-		dsl_dataset_t *clone;
-		int err = dsl_dataset_hold_obj(dp, za.za_first_integer, FTAG,
-		    &clone);
-
-		if (err != 0) {
-			zap_cursor_fini(&zc);
-			return (EFAULT);
-		}
-
-		boolean_t found = B_FALSE;
-		for (int i = 0; i < snapshot_count; i++) {
-			if (dsl_dir_phys(clone->ds_dir)->dd_origin_obj
-			    == snapshot[i]) {
-				found = B_TRUE;
-			}
-		}
-		dsl_dataset_rele(clone, FTAG);
-
-		if (!found) {
-			continue;
-		}
-
-		check_filesystem(spa, za.za_first_integer, zep, count, addr,
-		    only_count);
-	}
-	zap_cursor_fini(&zc);
 	return (0);
 }
 
@@ -359,7 +266,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
 	if (dsl_dataset_hold_obj(dp, fs, FTAG, &ds) != 0)
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 
 	uint64_t latest_txg;
 	uint64_t txg_to_consider = spa->spa_syncing_txg;
@@ -371,7 +278,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 			/* Block neither free nor re written. */
 			if (!only_count) {
 				zbookmark_phys_t zb;
-				zeb_to_zb(fs, zep, &zb);
+				zep_to_zb(fs, zep, &zb);
 				if (copyout(&zb, (char *)addr + (*count - 1)
 				    * sizeof (zbookmark_phys_t),
 				    sizeof (zbookmark_phys_t)) != 0) {
@@ -390,7 +297,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	if (zap_count(spa->spa_meta_objset,
 	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count) != 0) {
 		dsl_dataset_rele(ds, FTAG);
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 	}
 
 	if (snap_count == 0) {
@@ -435,7 +342,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 
 			if (!only_count) {
 				zbookmark_phys_t zb;
-				zeb_to_zb(snap_obj, zep, &zb);
+				zep_to_zb(snap_obj, zep, &zb);
 				if (copyout(&zb, (char *)addr + (*count - 1)
 				    * sizeof (zbookmark_phys_t),
 				    sizeof (zbookmark_phys_t)) != 0) {
@@ -451,8 +358,45 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	}
 	dsl_dataset_rele(ds, FTAG);
 	if (zap_clone != 0 && aff_snap_count > 0) {
-		check_clones(spa, snap_obj_array, aff_snap_count, zap_clone,
-		    zep, count, addr, only_count);
+		zap_cursor_t zc;
+		zap_attribute_t za;
+
+		for (zap_cursor_init(&zc, spa->spa_meta_objset, zap_clone);
+		    zap_cursor_retrieve(&zc, &za) == 0;
+		    zap_cursor_advance(&zc)) {
+
+			dsl_pool_t *dp = spa->spa_dsl_pool;
+			dsl_dataset_t *clone;
+			int err = dsl_dataset_hold_obj(dp, za.za_first_integer,
+			    FTAG, &clone);
+
+			if (err != 0) {
+				zap_cursor_fini(&zc);
+				goto out;
+			}
+
+			boolean_t found = B_FALSE;
+			for (int i = 0; i < aff_snap_count; i++) {
+				if (dsl_dir_phys(clone->ds_dir)->dd_origin_obj
+				    == snap_obj_array[i]) {
+					found = B_TRUE;
+				}
+			}
+			dsl_dataset_rele(clone, FTAG);
+
+			if (!found) {
+				continue;
+			}
+
+			err = check_filesystem(spa, za.za_first_integer, zep,
+			    count, addr, only_count);
+
+			if (err != 0) {
+				zap_cursor_fini(&zc);
+				goto out;
+			}
+		}
+		zap_cursor_fini(&zc);
 	}
 	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
 	return (0);
@@ -469,7 +413,7 @@ find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep)
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
 	if (dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds) != 0)
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	uint64_t snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
@@ -487,7 +431,6 @@ find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep)
 
 	return (top_affected_fs);
 }
-
 static int
 process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
     uint64_t *count, void *addr, boolean_t only_count)
@@ -564,6 +507,51 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree)
 	return (total);
 }
 #endif
+
+/*
+ * Return the number of errors currently in the error log.  This is actually the
+ * sum of both the last log and the current log, since we don't know the union
+ * of these logs until we reach userland.
+ */
+uint64_t
+spa_get_errlog_size(spa_t *spa)
+{
+	uint64_t total = 0;
+
+	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
+		uint64_t count;
+		mutex_enter(&spa->spa_errlog_lock);
+		if (spa->spa_errlog_scrub != 0 &&
+		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
+		    &count) == 0)
+			total += count;
+
+		if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
+		    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
+		    &count) == 0)
+			total += count;
+		mutex_exit(&spa->spa_errlog_lock);
+
+		mutex_enter(&spa->spa_errlist_lock);
+		total += avl_numnodes(&spa->spa_errlist_last);
+		total += avl_numnodes(&spa->spa_errlist_scrub);
+		mutex_exit(&spa->spa_errlist_lock);
+
+	} else {
+#ifdef _KERNEL
+		mutex_enter(&spa->spa_errlog_lock);
+		total += get_errlog_size(spa, spa->spa_errlog_last);
+		total += get_errlog_size(spa, spa->spa_errlog_scrub);
+		mutex_exit(&spa->spa_errlog_lock);
+
+		mutex_enter(&spa->spa_errlist_lock);
+		total += get_errlist_size(spa, &spa->spa_errlist_last);
+		total += get_errlist_size(spa, &spa->spa_errlist_scrub);
+		mutex_exit(&spa->spa_errlist_lock);
+#endif
+	}
+	return (total);
+}
 
 /*
  * If an error block is shared by two dataset it would be counted twice. For
@@ -955,7 +943,7 @@ find_txg_ancestor_snapshot(spa_t *spa, uint64_t new_head, uint64_t old_head)
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
 	if (dsl_dataset_hold_obj(dp, old_head, FTAG, &ds) != 0)
-		return (EFAULT);
+		return (SET_ERROR(EFAULT));
 
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	uint64_t snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
