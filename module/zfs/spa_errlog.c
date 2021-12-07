@@ -79,6 +79,22 @@ errphys_to_name(zbookmark_err_phys_t *zep, char *buf, size_t len)
 	    (u_longlong_t)zep->zb_blkid, (u_longlong_t)zep->zb_birth);
 }
 
+/*
+ * Convert a string to a err_phys.
+ */
+static void
+name_to_errphys(char *buf, zbookmark_err_phys_t *zep)
+{
+	zep->zb_object = zfs_strtonum(buf, &buf);
+	ASSERT(*buf == ':');
+	zep->zb_level = (int)zfs_strtonum(buf + 1, &buf);
+	ASSERT(*buf == ':');
+	zep->zb_blkid = zfs_strtonum(buf + 1, &buf);
+	ASSERT(*buf == ':');
+	zep->zb_birth = zfs_strtonum(buf + 1, &buf);
+	ASSERT(*buf == '\0');
+}
+
 #ifdef _KERNEL
 /*
  * Convert a string to a bookmark.
@@ -93,22 +109,6 @@ name_to_bookmark(char *buf, zbookmark_phys_t *zb)
 	zb->zb_level = (int)zfs_strtonum(buf + 1, &buf);
 	ASSERT(*buf == ':');
 	zb->zb_blkid = zfs_strtonum(buf + 1, &buf);
-	ASSERT(*buf == '\0');
-}
-
-/*
- * Convert a string to a err_phys.
- */
-static void
-name_to_errphys(char *buf, zbookmark_err_phys_t *zep)
-{
-	zep->zb_object = zfs_strtonum(buf, &buf);
-	ASSERT(*buf == ':');
-	zep->zb_level = (int)zfs_strtonum(buf + 1, &buf);
-	ASSERT(*buf == ':');
-	zep->zb_blkid = zfs_strtonum(buf + 1, &buf);
-	ASSERT(*buf == ':');
-	zep->zb_birth = zfs_strtonum(buf + 1, &buf);
 	ASSERT(*buf == '\0');
 }
 
@@ -935,7 +935,6 @@ spa_delete_dataset_errlog(spa_t *spa, uint64_t ds, dmu_tx_t *tx)
 	mutex_exit(&spa->spa_errlog_lock);
 }
 
-#if defined(_KERNEL)
 static uint64_t
 find_txg_ancestor_snapshot(spa_t *spa, uint64_t new_head, uint64_t old_head)
 {
@@ -1016,17 +1015,14 @@ swap_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t new_head, uint64_t
 	}
 	zap_cursor_fini(&zc);
 }
-#endif
 
 void
 spa_swap_errlog(spa_t *spa, uint64_t new_head_ds, uint64_t old_head_ds,
     dmu_tx_t *tx)
 {
 	mutex_enter(&spa->spa_errlog_lock);
-#if defined(_KERNEL)
 	swap_errlog(spa, spa->spa_errlog_scrub, new_head_ds, old_head_ds, tx);
 	swap_errlog(spa, spa->spa_errlog_last, new_head_ds, old_head_ds, tx);
-#endif
 	mutex_exit(&spa->spa_errlog_lock);
 }
 
