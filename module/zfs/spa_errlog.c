@@ -384,9 +384,8 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 			}
 			dsl_dataset_rele(clone, FTAG);
 
-			if (!found) {
+			if (!found)
 				continue;
-			}
 
 			err = check_filesystem(spa, za.za_first_integer, zep,
 			    count, addr, only_count);
