@@ -46,7 +46,7 @@ function cleanup
 
 verify_runnable "both"
 
-log_assert "Verify 'feature@head_errlog=disabled' works"
+log_assert "Verify 'zpool status -v' with feature@head_errlog=disabled works"
 log_onexit cleanup
 
 log_must zpool create -f -o feature@head_errlog=disabled $TESTPOOL $DISKS
@@ -78,4 +78,4 @@ log_mustnot eval "zpool status -v | grep '$TESTPOOL/$TESTFS@snap:/10m_file'"
 log_mustnot eval "zpool status -v | grep '$TESTPOOL/testclone/10m_file'"
 log_must eval "zpool status -v | grep '$TESTDIR/10m_file'"
 
-log_pass "'feature@head_errlog=disabled works"
+log_pass "'zpool status -v' with feature@head_errlog=disabled works"
