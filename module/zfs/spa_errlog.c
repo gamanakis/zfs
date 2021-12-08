@@ -258,6 +258,13 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
 	return (0);
 }
 
+/*
+ * This function serves a double role. If only_count is true, it returns
+ * how many times an error block belonging to this filesystem is referenced by
+ * snapshots or clones. If only_count is false, each time the error block is
+ * referenced by a snapshot or clone, it returns the address of zep back to
+ * process_error_log().
+ */
 static int
 check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
     uint64_t *count, void *addr, boolean_t only_count)
@@ -293,6 +300,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		}
 	}
 
+	/* How many snapshots reference this block. */
 	uint64_t snap_count;
 	if (zap_count(spa->spa_meta_objset,
 	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count) != 0) {
@@ -322,9 +330,8 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		if (dsl_dataset_hold_obj(dp, snap_obj, FTAG, &ds) != 0)
 			return (SET_ERROR(EFAULT));
 
-		if (dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj != fs) {
+		if (dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj != fs)
 			break;
-		}
 
 		boolean_t affected = B_TRUE;
 		if (check_snapshot) {
@@ -346,6 +353,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 				if (copyout(&zb, (char *)addr + (*count - 1)
 				    * sizeof (zbookmark_phys_t),
 				    sizeof (zbookmark_phys_t)) != 0) {
+					dsl_dataset_rele(ds, FTAG);
 					goto out;
 				}
 				(*count)--;
@@ -357,6 +365,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	}
 	dsl_dataset_rele(ds, FTAG);
+
 	if (zap_clone != 0 && aff_snap_count > 0) {
 		zap_cursor_t zc;
 		zap_attribute_t za;
@@ -400,7 +409,6 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
 	return (0);
 out:
-	dsl_dataset_rele(ds, FTAG);
 	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
 	return (SET_ERROR(EFAULT));
 }
