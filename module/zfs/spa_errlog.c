@@ -580,20 +580,20 @@ process_error_log(spa_t *spa, uint64_t obj, void *addr, uint64_t *count)
 		    zap_cursor_retrieve(&zc, &za) == 0;
 		    zap_cursor_advance(&zc)) {
 			if (*count == 0) {
-					zap_cursor_fini(&zc);
-					return (SET_ERROR(ENOMEM));
-				}
+				zap_cursor_fini(&zc);
+				return (SET_ERROR(ENOMEM));
+			}
 
-				zbookmark_phys_t zb;
-				name_to_bookmark(za.za_name, &zb);
+			zbookmark_phys_t zb;
+			name_to_bookmark(za.za_name, &zb);
 
-				if (copyout(&zb, (char *)addr +
-				    (*count - 1) * sizeof (zbookmark_phys_t),
-				    sizeof (zbookmark_phys_t)) != 0) {
-					zap_cursor_fini(&zc);
-					return (SET_ERROR(EFAULT));
-				}
-				*count -= 1;
+			if (copyout(&zb, (char *)addr +
+			    (*count - 1) * sizeof (zbookmark_phys_t),
+			    sizeof (zbookmark_phys_t)) != 0) {
+				zap_cursor_fini(&zc);
+				return (SET_ERROR(EFAULT));
+			}
+			*count -= 1;
 
 		}
 		zap_cursor_fini(&zc);
@@ -762,9 +762,8 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 	char buf[64];
 	void *cookie;
 
-	if (avl_numnodes(t) == 0) {
+	if (avl_numnodes(t) == 0)
 		return;
-	}
 
 	/* create log if necessary */
 	if (*obj == 0)
