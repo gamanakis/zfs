@@ -231,16 +231,14 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
     uint64_t *birth_txg)
 {
 	objset_t *os;
-	if (dmu_objset_from_ds(ds, &os) != 0) {
+	if (dmu_objset_from_ds(ds, &os) != 0)
 		return (SET_ERROR(ENOENT));
-	}
 
 	dnode_t *dn;
 	blkptr_t bp;
 
-	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0) {
+	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0)
 		return (SET_ERROR(ENOENT));
-	}
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
 	int err = dbuf_dnode_findbp(dn, zep->zb_level, zep->zb_blkid, &bp, NULL,
@@ -366,6 +364,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	}
 	dsl_dataset_rele(ds, FTAG);
 
+	/* Check clones referencing the error block. */
 	if (zap_clone != 0 && aff_snap_count > 0) {
 		zap_cursor_t zc;
 		zap_attribute_t za;
