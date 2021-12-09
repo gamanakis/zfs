@@ -437,6 +437,7 @@ find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep)
 
 	return (top_affected_fs);
 }
+
 static int
 process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
     uint64_t *count, void *addr, boolean_t only_count)
