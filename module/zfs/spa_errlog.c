@@ -260,8 +260,8 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
  * This function serves a double role. If only_count is true, it returns
  * how many times an error block belonging to this filesystem is referenced by
  * snapshots or clones. If only_count is false, each time the error block is
- * referenced by a snapshot or clone, it returns the address of zep back to
- * process_error_log().
+ * referenced by a snapshot or clone, it returns a pointer to the bookmark of
+ * the error block back to process_error_log().
  */
 static int
 check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
