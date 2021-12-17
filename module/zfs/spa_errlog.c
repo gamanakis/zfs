@@ -105,7 +105,7 @@ errphys_to_name(zbookmark_err_phys_t *zep, char *buf, size_t len)
 /*
  * Convert a string to a err_phys.
  */
-static void
+void
 name_to_errphys(char *buf, zbookmark_err_phys_t *zep)
 {
 	zep->zb_object = zfs_strtonum(buf, &buf);
@@ -134,8 +134,7 @@ name_to_bookmark(char *buf, zbookmark_phys_t *zb)
 	ASSERT(*buf == '\0');
 }
 
-#ifdef _KERNEL
-static void
+void
 zep_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
 {
 	zb->zb_objset = dataset;
@@ -143,7 +142,6 @@ zep_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
 	zb->zb_level = zep->zb_level;
 	zb->zb_blkid = zep->zb_blkid;
 }
-#endif
 
 static void
 name_to_object(char *buf, uint64_t *obj)
@@ -161,9 +159,9 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	objset_t *os;
 
 	int error = dsl_dataset_hold_obj(dp, ds_obj, FTAG, &ds);
-	if (error != 0) {
+	if (error != 0)
 		return (error);
-	}
+
 	ASSERT(head_dataset_id);
 	*head_dataset_id = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
@@ -267,8 +265,7 @@ spa_log_error(spa_t *spa, const zbookmark_phys_t *zb)
 	mutex_exit(&spa->spa_errlist_lock);
 }
 
-#ifdef _KERNEL
-static int
+int
 find_birth_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
     uint64_t *birth_txg)
 {
@@ -296,6 +293,29 @@ find_birth_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
 	return (error);
 }
 
+int
+find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
+    uint64_t *top_affected_fs)
+{
+	uint64_t oldest_dsobj;
+	int error = dsl_dataset_oldest_snapshot(spa, head_ds, zep->zb_birth,
+	    &oldest_dsobj);
+	if (error != 0)
+		return (error);
+
+	dsl_dataset_t *ds;
+	error = dsl_dataset_hold_obj(spa->spa_dsl_pool, oldest_dsobj,
+	    FTAG, &ds);
+	if (error != 0)
+		return (error);
+
+	*top_affected_fs =
+	    dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
+	dsl_dataset_rele(ds, FTAG);
+	return (0);
+}
+
+#ifdef _KERNEL
 /*
  * Copy the bookmark to the end of the user-space buffer which starts at
  * uaddr and has *count unused entries, and decrement *count by 1.
@@ -448,28 +468,6 @@ out:
 }
 
 static int
-find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
-    uint64_t *top_affected_fs)
-{
-	uint64_t oldest_dsobj;
-	int error = dsl_dataset_oldest_snapshot(spa, head_ds, zep->zb_birth,
-	    &oldest_dsobj);
-	if (error != 0)
-		return (error);
-
-	dsl_dataset_t *ds;
-	error = dsl_dataset_hold_obj(spa->spa_dsl_pool, oldest_dsobj,
-	    FTAG, &ds);
-	if (error != 0)
-		return (error);
-
-	*top_affected_fs =
-	    dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
-	dsl_dataset_rele(ds, FTAG);
-	return (0);
-}
-
-static int
 process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
     void *uaddr, uint64_t *count)
 {
@@ -499,6 +497,21 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	return (error);
 }
 #endif
+
+/* Return the number of errors in the error log */
+uint64_t
+spa_get_last_errlog_size(spa_t *spa)
+{
+	uint64_t total = 0, count;
+	mutex_enter(&spa->spa_errlog_lock);
+
+	if (spa->spa_errlog_last != 0 &&
+	    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
+	    &count) == 0)
+		total += count;
+	mutex_exit(&spa->spa_errlog_lock);
+	return (total);
+}
 
 /*
  * If a healed bookmark matches an entry in the error log we stash it in a tree
@@ -1294,6 +1307,7 @@ spa_swap_errlog(spa_t *spa, uint64_t new_head_ds, uint64_t old_head_ds,
 /* error handling */
 EXPORT_SYMBOL(spa_log_error);
 EXPORT_SYMBOL(spa_approx_errlog_size);
+EXPORT_SYMBOL(spa_get_last_errlog_size);
 EXPORT_SYMBOL(spa_get_errlog);
 EXPORT_SYMBOL(spa_errlog_rotate);
 EXPORT_SYMBOL(spa_errlog_drain);
@@ -1303,6 +1317,10 @@ EXPORT_SYMBOL(spa_delete_dataset_errlog);
 EXPORT_SYMBOL(spa_swap_errlog);
 EXPORT_SYMBOL(sync_error_list);
 EXPORT_SYMBOL(spa_upgrade_errlog);
+EXPORT_SYMBOL(find_top_affected_fs);
+EXPORT_SYMBOL(find_birth_txg);
+EXPORT_SYMBOL(zep_to_zb);
+EXPORT_SYMBOL(name_to_errphys);
 #endif
 
 /* BEGIN CSTYLED */
