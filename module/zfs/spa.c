@@ -8110,6 +8110,7 @@ spa_scan_stop(spa_t *spa)
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == 0);
 	if (dsl_scan_resilvering(spa->spa_dsl_pool))
 		return (SET_ERROR(EBUSY));
+
 	return (dsl_scan_cancel(spa->spa_dsl_pool));
 }
 
@@ -9174,6 +9175,7 @@ spa_sync_iterate_to_convergence(spa_t *spa, dmu_tx_t *tx)
 		brt_sync(spa, txg);
 		ddt_sync(spa, txg);
 		dsl_scan_sync(dp, tx);
+		dsl_errorscrub_sync(dp, tx);
 		svr_sync(spa, tx);
 		spa_sync_upgrades(spa, tx);
 
