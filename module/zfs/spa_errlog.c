@@ -781,8 +781,7 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			    strlen(name) + 1, name, tx);
 		}
 	} else {
-		for (se = avl_first(t); se != NULL;
-		    se = AVL_NEXT(t, se)) {
+		for (se = avl_first(t); se != NULL; se = AVL_NEXT(t, se)) {
 			char *name = se->se_name ? se->se_name : "";
 
 			zbookmark_err_phys_t zep;
@@ -797,7 +796,7 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			int error = zap_lookup_int_key(spa->spa_meta_objset,
 			    *obj, head_dataset_obj, &err_obj);
 
-			if (error != 0) {
+			if (error == ENOENT) {
 				err_obj = zap_create(spa->spa_meta_objset,
 				    DMU_OT_ERROR_LOG, DMU_OT_NONE, 0, tx);
 
