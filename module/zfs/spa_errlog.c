@@ -755,7 +755,7 @@ spa_errlog_drain(spa_t *spa)
 /*
  * Process a list of errors into the current on-disk log.
  */
-static void
+void
 sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 {
 	spa_error_entry_t *se;
@@ -1042,4 +1042,5 @@ EXPORT_SYMBOL(spa_errlog_sync);
 EXPORT_SYMBOL(spa_get_errlists);
 EXPORT_SYMBOL(spa_delete_dataset_errlog);
 EXPORT_SYMBOL(spa_swap_errlog);
+EXPORT_SYMBOL(sync_error_list);
 #endif
