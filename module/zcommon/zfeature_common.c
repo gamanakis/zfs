@@ -696,10 +696,12 @@ zpool_feature_init(void)
 	    ZFEATURE_FLAG_MOS, ZFEATURE_TYPE_BOOLEAN, NULL, sfeatures);
 
 	{
+
 	static const spa_feature_t zilsaxattr_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_NONE
 	};
+
 	zfeature_register(SPA_FEATURE_ZILSAXATTR,
 	    "org.openzfs:zilsaxattr", "zilsaxattr",
 	    "Support for xattr=sa extended attribute logging in ZIL.",
@@ -707,13 +709,13 @@ zpool_feature_init(void)
 	    ZFEATURE_TYPE_BOOLEAN, zilsaxattr_deps, sfeatures);
 	}
 
-	zfs_mod_list_supported_free(sfeatures);
-
 	zfeature_register(SPA_FEATURE_HEAD_ERRLOG,
 	    "com.delphix:head_errlog", "head_errlog",
 	    "Introduce an on-disk block error log.",
 	    ZFEATURE_FLAG_ACTIVATE_ON_ENABLE, ZFEATURE_TYPE_BOOLEAN, NULL,
 	    sfeatures);
+
+	zfs_mod_list_supported_free(sfeatures);
 }
 
 #if defined(_KERNEL)
