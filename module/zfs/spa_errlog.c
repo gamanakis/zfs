@@ -566,6 +566,30 @@ spa_get_errlog_size(spa_t *spa)
  */
 
 #ifdef _KERNEL
+void
+update_error_log(spa_t *spa, uint64_t obj, zbookmark_phys_t **zb)
+{
+	zap_cursor_t zc;
+	zap_attribute_t za;
+	uint64_t i = 0;
+
+	for (zap_cursor_init(&zc, spa->spa_meta_objset, obj);
+	    zap_cursor_retrieve(&zc, &za) == 0;
+	    zap_cursor_advance(&zc)) {
+		name_to_bookmark(za.za_name, &(*zb)[i]);
+		i++;
+	}
+	zap_cursor_fini(&zc);
+}
+
+void
+update_error_log_2(spa_t *spa, zbookmark_phys_t **zb, uint64_t count)
+{
+	for (uint64_t i = 0; i <= count; i++) {
+		spa_log_error(spa, &(*zb)[i]);
+	}
+}
+
 static int
 process_error_log(spa_t *spa, uint64_t obj, void *addr, uint64_t *count)
 {
@@ -1043,4 +1067,6 @@ EXPORT_SYMBOL(spa_get_errlists);
 EXPORT_SYMBOL(spa_delete_dataset_errlog);
 EXPORT_SYMBOL(spa_swap_errlog);
 EXPORT_SYMBOL(sync_error_list);
+EXPORT_SYMBOL(update_error_log);
+EXPORT_SYMBOL(update_error_log_2);
 #endif
