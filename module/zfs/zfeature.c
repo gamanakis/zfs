@@ -393,20 +393,27 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 #ifdef _KERNEL
 	/* Reset the old err log when activating the head_errlog feature. */
 	if (feature->fi_feature == SPA_FEATURE_HEAD_ERRLOG) {
-		uint64_t count = 0;
+		uint64_t count = 0, total = 0;
 		zbookmark_phys_t *zb;
 
 		mutex_enter(&spa->spa_errlog_lock);
-		if (spa->spa_errlog_last == 0 ||
+		if (spa->spa_errlog_scrub != 0 &&
+		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
+		    &count) == 0)
+			total += count;
+
+		if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
-		    &count) != 0 || count == 0) {
-				mutex_exit(&spa->spa_errlog_lock);
-				return;
+		    &count) == 0)
+			total += count;
+
+		if (total == 0) {
+			mutex_exit(&spa->spa_errlog_lock);
+			return;
 		}
 
-		zb = kmem_alloc(count * sizeof (zbookmark_phys_t), KM_SLEEP);
-
-		update_error_log(spa, spa->spa_errlog_last, &zb);
+		zb = kmem_alloc(total * sizeof (zbookmark_phys_t), KM_SLEEP);
+		update_error_log(spa, &zb);
 
 		if (spa->spa_errlog_last != 0) {
 			VERIFY(dmu_object_free(spa->spa_meta_objset,
@@ -416,8 +423,9 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		spa->spa_errlog_scrub = 0;
 		mutex_exit(&spa->spa_errlog_lock);
 
-		update_error_log_2(spa, &zb, count);
-		kmem_free(zb, count * sizeof (zbookmark_phys_t));
+		for (uint64_t i = 0; i <= count; i++)
+			spa_log_error(spa, &zb[i]);
+		kmem_free(zb, total * sizeof (zbookmark_phys_t));
 	}
 #endif
 }
