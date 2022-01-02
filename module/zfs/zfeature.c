@@ -423,7 +423,7 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		spa->spa_errlog_scrub = 0;
 		mutex_exit(&spa->spa_errlog_lock);
 
-		for (uint64_t i = 0; i <= count; i++)
+		for (uint64_t i = 0; i <= total; i++)
 			spa_log_error(spa, &zb[i]);
 		kmem_free(zb, total * sizeof (zbookmark_phys_t));
 	}
