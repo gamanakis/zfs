@@ -413,7 +413,7 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		}
 
 		zb = kmem_alloc(total * sizeof (zbookmark_phys_t), KM_SLEEP);
-		update_error_log(spa, &zb);
+		errlog_to_zbarr(spa, &zb);
 
 		if (spa->spa_errlog_last != 0) {
 			VERIFY(dmu_object_free(spa->spa_meta_objset,

@@ -560,14 +560,9 @@ spa_get_errlog_size(spa_t *spa)
 	return (total);
 }
 
-/*
- * If an error block is shared by two dataset it would be counted twice. For
- * detailed message see spa_get_errlog_size() above.
- */
-
 #ifdef _KERNEL
 void
-update_error_log(spa_t *spa, zbookmark_phys_t **zb)
+errlog_to_zbarr(spa_t *spa, zbookmark_phys_t **zb)
 {
 	zap_cursor_t zc;
 	zap_attribute_t za;
@@ -590,6 +585,10 @@ update_error_log(spa_t *spa, zbookmark_phys_t **zb)
 	zap_cursor_fini(&zc);
 }
 
+/*
+ * If an error block is shared by two dataset it would be counted twice. For
+ * detailed message see spa_get_errlog_size() above.
+ */
 static int
 process_error_log(spa_t *spa, uint64_t obj, void *addr, uint64_t *count)
 {
@@ -1067,5 +1066,5 @@ EXPORT_SYMBOL(spa_get_errlists);
 EXPORT_SYMBOL(spa_delete_dataset_errlog);
 EXPORT_SYMBOL(spa_swap_errlog);
 EXPORT_SYMBOL(sync_error_list);
-EXPORT_SYMBOL(update_error_log);
+EXPORT_SYMBOL(errlog_to_zbarr);
 #endif
