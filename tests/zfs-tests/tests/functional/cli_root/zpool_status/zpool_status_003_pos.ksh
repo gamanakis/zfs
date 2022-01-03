@@ -32,7 +32,7 @@
 # Verify correct output with 'zpool status -v' after corrupting a file
 #
 # STRATEGY:
-# 1. Create a file system
+# 1. Create a pool and a file
 # 2. zinject checksum errors
 # 3. Read the file
 # 4. Take a snapshot and make a clone
@@ -41,7 +41,7 @@
 function cleanup
 {
 	log_must zinject -c all
-	datasetexists $TESTPOOL && log_must zpool destroy $TESTPOOL
+	datasetexists $TESTPOOL2 && log_must zpool destroy $TESTPOOL2
 }
 
 verify_runnable "both"
@@ -49,22 +49,21 @@ verify_runnable "both"
 log_assert "Verify correct 'zpool status -v' output with a corrupted file"
 log_onexit cleanup
 
-log_must mkfile 10m $TESTDIR/10m_file
+truncate -s $MINVDEVSIZE $TESTDIR/vdev_a
+log_must zpool create -f $TESTPOOL2 $TESTDIR/vdev_a
 
-log_must zpool export $TESTPOOL
-log_must zpool import $TESTPOOL
-
-log_must zinject -t data -e checksum -f 100 $TESTDIR/10m_file
+log_must mkfile 10m /$TESTPOOL2/10m_file
+log_must zinject -t data -e checksum -f 100 -am /$TESTPOOL2/10m_file
 
 # Try to read the 2nd megabyte of 10m_file
-dd if=$TESTDIR/10m_file bs=1M skip=1 count=1 || true
+dd if=/$TESTPOOL2/10m_file bs=1M || true
 
-log_must zfs snapshot $TESTPOOL/$TESTFS@snap
-log_must zfs clone $TESTPOOL/$TESTFS@snap $TESTPOOL/testclone
+log_must zfs snapshot $TESTPOOL2@snap
+log_must zfs clone $TESTPOOL2@snap $TESTPOOL2/clone
 
 # Look to see that snapshot, clone and filesystem our files report errors
-log_must eval "zpool status -v | grep '$TESTPOOL/$TESTFS@snap:/10m_file'"
-log_must eval "zpool status -v | grep '$TESTPOOL/testclone/10m_file'"
-log_must eval "zpool status -v | grep '$TESTDIR/10m_file'"
+log_must eval "zpool status -v | grep '$TESTPOOL2@snap:/10m_file'"
+log_must eval "zpool status -v | grep '$TESTPOOL2/clone/10m_file'"
+log_must eval "zpool status -v | grep '$TESTPOOL2/10m_file'"
 
 log_pass "'zpool status -v' outputs affected filesystem, snapshot & clone"
