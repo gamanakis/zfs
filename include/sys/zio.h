@@ -283,6 +283,11 @@ extern const char *zio_type_name[ZIO_TYPES];
  * Note: this structure is passed between userland and the kernel, and is
  * stored on disk (by virtue of being incorporated into other on-disk
  * structures, e.g. dsl_scan_phys_t).
+ *
+ * The error bookmark is a four-tuple <object, level, blkid, birth> that
+ * uniquely identifies any error block in the pool. The birth transaction is
+ * used to track whether the block has been overwritten by newer data since
+ * its marking as an error.
  */
 struct zbookmark_phys {
 	uint64_t	zb_objset;
