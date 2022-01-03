@@ -561,20 +561,17 @@ spa_get_errlog_size(spa_t *spa)
 }
 
 #ifdef _KERNEL
-void
+/*
+ * This function sweeps through the on-disk error log and stores all bookmarks
+ * to an array which is passed in as an argument. It returns the number of
+ * bookmarks it actually allocated into the array.
+ */
+uint64_t
 errlog_to_zbarr(spa_t *spa, zbookmark_phys_t **zb)
 {
 	zap_cursor_t zc;
 	zap_attribute_t za;
 	uint64_t i = 0;
-
-	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa->spa_errlog_last);
-	    zap_cursor_retrieve(&zc, &za) == 0;
-	    zap_cursor_advance(&zc)) {
-		name_to_bookmark(za.za_name, &(*zb)[i]);
-		i++;
-	}
-	zap_cursor_fini(&zc);
 
 	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa->spa_errlog_scrub);
 	    zap_cursor_retrieve(&zc, &za) == 0;
@@ -583,6 +580,19 @@ errlog_to_zbarr(spa_t *spa, zbookmark_phys_t **zb)
 		i++;
 	}
 	zap_cursor_fini(&zc);
+
+	if (!spa->spa_scrub_finished) {
+		for (zap_cursor_init(&zc, spa->spa_meta_objset,
+		    spa->spa_errlog_last);
+		    zap_cursor_retrieve(&zc, &za) == 0;
+		    zap_cursor_advance(&zc)) {
+			name_to_bookmark(za.za_name, &(*zb)[i]);
+			i++;
+		}
+	}
+	zap_cursor_fini(&zc);
+
+	return (i);
 }
 
 /*
