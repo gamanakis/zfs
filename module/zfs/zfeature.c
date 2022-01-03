@@ -391,12 +391,16 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		spa->spa_errata = 0;
 
 #ifdef _KERNEL
-	/* Reset the old err log when activating the head_errlog feature. */
+	/*
+	 * Convert the old on-disk error log to the new format when activating
+	 * the head_errlog feature.
+	 */
 	if (feature->fi_feature == SPA_FEATURE_HEAD_ERRLOG) {
-		uint64_t count = 0, total = 0;
+		uint64_t count = 0, total = 0, alloc = 0;
 		zbookmark_phys_t *zb;
 
 		mutex_enter(&spa->spa_errlog_lock);
+		/* How many error blocks are contained in the error logs. */
 		if (spa->spa_errlog_scrub != 0 &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
 		    &count) == 0)
@@ -407,14 +411,22 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		    &count) == 0)
 			total += count;
 
+		/* If no error blocks (also upon creating a pool) return. */
 		if (total == 0) {
 			mutex_exit(&spa->spa_errlog_lock);
 			return;
 		}
 
+		/*
+		 * Allocate an array based on the total count above, and copy
+		 * the bookmarks of the error blocks into it. This is needed
+		 * as we are going to free the old on-disk error logs.
+		 */
 		zb = kmem_alloc(total * sizeof (zbookmark_phys_t), KM_SLEEP);
-		errlog_to_zbarr(spa, &zb);
+		alloc = errlog_to_zbarr(spa, &zb);
+		ASSERT(alloc <= total);
 
+		/* Free the old on-disk error logs. */
 		if (spa->spa_errlog_last != 0) {
 			VERIFY(dmu_object_free(spa->spa_meta_objset,
 			    spa->spa_errlog_last, tx) == 0);
@@ -423,7 +435,12 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 		spa->spa_errlog_scrub = 0;
 		mutex_exit(&spa->spa_errlog_lock);
 
-		for (uint64_t i = 0; i <= total; i++)
+		/*
+		 * Log errors from the array of error blocks to the spa's lists
+		 * of pending errors. They will be later synced to the on-disk
+		 * error logs by spa_errlog_sync().
+		 */
+		for (uint64_t i = 0; i < alloc; i++)
 			spa_log_error(spa, &zb[i]);
 		kmem_free(zb, total * sizeof (zbookmark_phys_t));
 	}

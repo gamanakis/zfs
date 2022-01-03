@@ -1154,7 +1154,7 @@ extern void spa_swap_errlog(spa_t *spa, uint64_t new_head_ds,
     uint64_t old_head_ds, dmu_tx_t *tx);
 extern void sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj,
     dmu_tx_t *tx);
-extern void errlog_to_zbarr(spa_t *spa, zbookmark_phys_t **zb);
+extern uint64_t errlog_to_zbarr(spa_t *spa, zbookmark_phys_t **zb);
 
 /* vdev cache */
 extern void vdev_cache_stat_init(void);
