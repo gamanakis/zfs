@@ -284,10 +284,12 @@ extern const char *zio_type_name[ZIO_TYPES];
  * stored on disk (by virtue of being incorporated into other on-disk
  * structures, e.g. dsl_scan_phys_t).
  *
- * The error bookmark is a four-tuple <object, level, blkid, birth> that
- * uniquely identifies any error block in the pool. The birth transaction is
- * used to track whether the block has been overwritten by newer data since
- * its marking as an error.
+ * If the head_errlog feature is enabled a different on-disk format for error
+ * logs is used. This introduces the use of an error bookmark, a four-tuple
+ * <object, level, blkid, birth> that uniquely identifies any error block
+ * in the pool. The birth transaction group is used to track whether the block
+ * has been overwritten by newer data or added to a snapshot since its marking
+ * as an error.
  */
 struct zbookmark_phys {
 	uint64_t	zb_objset;

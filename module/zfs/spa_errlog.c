@@ -43,6 +43,16 @@
  * calculation when the data is requested, storing the result so future queries
  * will be faster.
  *
+ * If the head_errlog feature is enabled, a different on-disk format is used.
+ * The error log of each head dataset is stored separately in the zap object
+ * and keyed by the head id. This enables listing every dataset affected in
+ * userland. In order to be able to track whether an error block has been
+ * modified or added to snapshots since it was marked as an error, an new tuple
+ * is introduced: zbookmark_err_phys_t. It allows the storage of the birth
+ * transaction group of an error block on-disk. The birth transaction group is
+ * used by check_filesystem() to assess whether this block was freed,
+ * re-written or added to a snapshot since its marking as an error.
+ *
  * This log is then shipped into an nvlist where the key is the dataset name and
  * the value is the object name.  Userland is then responsible for uniquifying
  * this list and displaying it to the user.
