@@ -961,12 +961,12 @@ delete_errlog(spa_t *spa, uint64_t spa_err_obj, dmu_tx_t *tx)
 		for (zap_cursor_init(&zc, spa->spa_meta_objset, spa_err_obj);
 		    zap_cursor_retrieve(&zc, &za) == 0;
 		    zap_cursor_advance(&zc)) {
-			VERIFY(dmu_object_free(spa->spa_meta_objset,
-			    za.za_first_integer, tx) == 0);
+			VERIFY0(dmu_object_free(spa->spa_meta_objset,
+			    za.za_first_integer, tx));
 		}
 		zap_cursor_fini(&zc);
 	}
-	VERIFY(dmu_object_free(spa->spa_meta_objset, spa_err_obj, tx) == 0);
+	VERIFY0(dmu_object_free(spa->spa_meta_objset, spa_err_obj, tx));
 }
 
 /*
@@ -1060,8 +1060,8 @@ delete_dataset_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t ds,
 		if (head_ds == ds) {
 			(void) zap_remove(spa->spa_meta_objset, spa_err_obj,
 			    za.za_name, tx);
-			VERIFY(dmu_object_free(spa->spa_meta_objset,
-			    za.za_first_integer, tx) == 0);
+			VERIFY0(dmu_object_free(spa->spa_meta_objset,
+			    za.za_first_integer, tx));
 			break;
 		}
 	}
