@@ -68,6 +68,14 @@
 #include <sys/dbuf.h>
 
 /*
+ * spa_upgrade_errlog_limit : A zfs module parameter that controls the number
+ * 		of on-disk error log entries that will be converted to the new
+ * 		format when enabling head_errlog. Defaults to 0 which ignores
+ * 		the setting.
+ */
+uint32_t spa_upgrade_errlog_limit = 0;
+
+/*
  * Convert a bookmark to a string.
  */
 static void
@@ -590,6 +598,10 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa_err_obj);
 	    zap_cursor_retrieve(&zc, &za) == 0;
 	    zap_cursor_advance(&zc)) {
+		if (spa_upgrade_errlog_limit != 0 &&
+		    zc.zc_cd == spa_upgrade_errlog_limit)
+			break;
+
 		name_to_bookmark(za.za_name, &zb);
 
 		zbookmark_err_phys_t zep;
@@ -1170,3 +1182,9 @@ EXPORT_SYMBOL(spa_swap_errlog);
 EXPORT_SYMBOL(sync_error_list);
 EXPORT_SYMBOL(spa_upgrade_errlog);
 #endif
+
+/* BEGIN CSTYLED */
+ZFS_MODULE_PARAM(zfs_spa, spa_, upgrade_errlog_limit, INT, ZMOD_RW,
+	"Limit the number of errors which will be upgraded to the new "
+	"on-disk error log when enabling head_errlog");
+/* END CSTYLED */
