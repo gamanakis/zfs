@@ -105,7 +105,6 @@ name_to_errphys(char *buf, zbookmark_err_phys_t *zep)
 	ASSERT(*buf == '\0');
 }
 
-#ifdef _KERNEL
 /*
  * Convert a string to a bookmark.
  */
@@ -122,6 +121,7 @@ name_to_bookmark(char *buf, zbookmark_phys_t *zb)
 	ASSERT(*buf == '\0');
 }
 
+#ifdef _KERNEL
 static void
 zep_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
 {
@@ -570,86 +570,102 @@ spa_get_errlog_size(spa_t *spa)
 	return (total);
 }
 
-#ifdef _KERNEL
 /*
  * This function sweeps through the on-disk error log and stores all bookmarks
- * to an array. Then it calls spa_log_error() for each entry which will
- * eventually update the error lists and convert them to the new on-disk error
- * log format.
+ * as error bookmarks in a new ZAP object. At the end we discard the old one,
+ * and set spa_errlog_last to the new one.
  */
 void
 update_errlog(spa_t *spa, dmu_tx_t *tx)
 {
 	zap_cursor_t zc;
 	zap_attribute_t za;
-	zbookmark_phys_t *zb;
-	uint64_t count = 0, total = 0, alloc = 0;
+	zbookmark_phys_t zb;
 
 	mutex_enter(&spa->spa_errlog_lock);
-	/* How many error blocks are contained in the error logs. */
-	if (spa->spa_errlog_scrub != 0 &&
-	    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
-	    &count) == 0)
-		total += count;
 
-	if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
-	    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
-	    &count) == 0)
-		total += count;
-
-	/* If no error blocks (also upon creating a pool) return. */
-	if (total == 0) {
-		mutex_exit(&spa->spa_errlog_lock);
-		return;
-	}
-
-	/*
-	 * Allocate an array based on the total count above, and copy
-	 * the bookmarks of the error blocks into it. This is needed
-	 * as we are going to free the old on-disk error logs.
-	 */
-	zb = kmem_alloc(total * sizeof (zbookmark_phys_t), KM_SLEEP);
-
-	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa->spa_errlog_scrub);
+	uint64_t obj = zap_create(spa->spa_meta_objset, DMU_OT_ERROR_LOG,
+	    DMU_OT_NONE, 0, tx);
+	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa->spa_errlog_last);
 	    zap_cursor_retrieve(&zc, &za) == 0;
 	    zap_cursor_advance(&zc)) {
-		name_to_bookmark(za.za_name, &zb[alloc]);
-		alloc++;
-	}
-	zap_cursor_fini(&zc);
+		name_to_bookmark(za.za_name, &zb);
 
-	if (!spa->spa_scrub_finished) {
-		for (zap_cursor_init(&zc, spa->spa_meta_objset,
-		    spa->spa_errlog_last);
-		    zap_cursor_retrieve(&zc, &za) == 0;
-		    zap_cursor_advance(&zc)) {
-			name_to_bookmark(za.za_name, &zb[alloc]);
-			alloc++;
+		zbookmark_err_phys_t zep;
+		zep.zb_object = zb.zb_object;
+		zep.zb_level = zb.zb_level;
+		zep.zb_blkid = zb.zb_blkid;
+
+		uint64_t head_dataset_obj;
+
+		dsl_pool_t *dp = spa->spa_dsl_pool;
+		dsl_dataset_t *ds;
+		objset_t *os;
+
+		int err = dsl_dataset_hold_obj(dp, zb.zb_objset, FTAG, &ds);
+		if (err != 0)
+			continue;
+
+		ASSERT3P(&head_dataset_obj, !=, NULL);
+		head_dataset_obj = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
+
+		if (dmu_objset_from_ds(ds, &os) != 0) {
+			dsl_dataset_rele(ds, FTAG);
+			continue;
 		}
+
+		dnode_t *dn;
+		blkptr_t bp;
+
+		if (dnode_hold(os, zep.zb_object, FTAG, &dn) != 0) {
+			dsl_dataset_rele(ds, FTAG);
+			continue;
+		}
+
+		rw_enter(&dn->dn_struct_rwlock, RW_READER);
+		err = dbuf_dnode_findbp(dn, zep.zb_level, zep.zb_blkid, &bp, NULL,
+		    NULL);
+
+		if (err != 0 || BP_IS_HOLE(&bp)) {
+			rw_exit(&dn->dn_struct_rwlock);
+			dnode_rele(dn, FTAG);
+			dsl_dataset_rele(ds, FTAG);
+			continue;
+		}
+
+		zep.zb_birth = bp.blk_birth;
+		rw_exit(&dn->dn_struct_rwlock);
+		dnode_rele(dn, FTAG);
+		dsl_dataset_rele(ds, FTAG);
+
+		uint64_t err_obj;
+		int error = zap_lookup_int_key(spa->spa_meta_objset, obj,
+		    head_dataset_obj, &err_obj);
+
+		if (error == ENOENT) {
+			err_obj = zap_create(spa->spa_meta_objset,
+			    DMU_OT_ERROR_LOG, DMU_OT_NONE, 0, tx);
+
+			(void) zap_update_int_key(spa->spa_meta_objset,
+			    obj, head_dataset_obj, err_obj, tx);
+		}
+
+		char buf[64];
+		char *name = "";
+		errphys_to_name(&zep, buf, sizeof (buf));
+
+		(void) zap_update(spa->spa_meta_objset, err_obj,
+		    buf, 1, strlen(name) + 1, name, tx);
 	}
 	zap_cursor_fini(&zc);
 
-	ASSERT(alloc <= total);
+	VERIFY0(dmu_object_free(spa->spa_meta_objset, spa->spa_errlog_last, tx));
+	spa->spa_errlog_last = obj;
 
-	/* Free the old on-disk error logs. */
-	if (spa->spa_errlog_last != 0) {
-		VERIFY(dmu_object_free(spa->spa_meta_objset,
-		    spa->spa_errlog_last, tx) == 0);
-	}
-	spa->spa_errlog_last = 0;
-	spa->spa_errlog_scrub = 0;
 	mutex_exit(&spa->spa_errlog_lock);
-
-	/*
-	 * Log errors from the array of error blocks to the spa's lists
-	 * of pending errors. They will be later synced to the on-disk
-	 * error logs by spa_errlog_sync().
-	 */
-	for (uint64_t i = 0; i < alloc; i++)
-		spa_log_error(spa, &zb[i]);
-	kmem_free(zb, total * sizeof (zbookmark_phys_t));
 }
 
+#ifdef _KERNEL
 /*
  * If an error block is shared by two dataset it would be counted twice. For
  * detailed message see spa_get_errlog_size() above.
