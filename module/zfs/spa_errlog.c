@@ -73,7 +73,7 @@
  * 		format when enabling head_errlog. Defaults to 0 which ignores
  * 		the setting.
  */
-uint32_t spa_upgrade_errlog_limit = 0;
+static uint32_t spa_upgrade_errlog_limit = 0;
 
 /*
  * Convert a bookmark to a string.
