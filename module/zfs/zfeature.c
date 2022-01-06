@@ -396,7 +396,7 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 	 * the head_errlog feature.
 	 */
 	if (feature->fi_feature == SPA_FEATURE_HEAD_ERRLOG)
-		update_errlog(spa, tx);
+		spa_upgrade_errlog(spa, tx);
 #endif
 }
 
