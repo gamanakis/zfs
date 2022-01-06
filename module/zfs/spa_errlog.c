@@ -591,6 +591,18 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 	zap_cursor_t zc;
 	zap_attribute_t za;
 	zbookmark_phys_t zb;
+	uint64_t count;
+
+	/*
+	 * If we cannnot perform the upgrade we should clear the old on-disk
+	 * error logs.
+	 */
+	if (zap_count(spa->spa_meta_objset, spa_err_obj, &count) != 0) {
+		VERIFY0(dmu_object_free(spa->spa_meta_objset, spa_err_obj, tx));
+		*newobj = zap_create(spa->spa_meta_objset, DMU_OT_ERROR_LOG,
+		    DMU_OT_NONE, 0, tx);
+		return;
+	}
 
 	*newobj = zap_create(spa->spa_meta_objset, DMU_OT_ERROR_LOG,
 	    DMU_OT_NONE, 0, tx);
@@ -622,7 +634,6 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 		if (err != 0)
 			continue;
 
-		ASSERT3P(&head_dataset_obj, !=, NULL);
 		head_dataset_obj =
 		    dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
