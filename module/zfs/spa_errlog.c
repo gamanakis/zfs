@@ -571,22 +571,23 @@ spa_get_errlog_size(spa_t *spa)
 }
 
 /*
- * This function sweeps through the on-disk error log and stores all bookmarks
+ * This function sweeps through an on-disk error log and stores all bookmarks
  * as error bookmarks in a new ZAP object. At the end we discard the old one,
- * and set spa_errlog_last to the new one.
+ * and spa_update_errlog() will set the spa's on-disk error log to new ZAP
+ * object.
  */
-void
-update_errlog(spa_t *spa, dmu_tx_t *tx)
+static void
+sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
+    dmu_tx_t *tx)
 {
 	zap_cursor_t zc;
 	zap_attribute_t za;
 	zbookmark_phys_t zb;
 
-	mutex_enter(&spa->spa_errlog_lock);
-
-	uint64_t obj = zap_create(spa->spa_meta_objset, DMU_OT_ERROR_LOG,
+	*newobj = zap_create(spa->spa_meta_objset, DMU_OT_ERROR_LOG,
 	    DMU_OT_NONE, 0, tx);
-	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa->spa_errlog_last);
+
+	for (zap_cursor_init(&zc, spa->spa_meta_objset, spa_err_obj);
 	    zap_cursor_retrieve(&zc, &za) == 0;
 	    zap_cursor_advance(&zc)) {
 		name_to_bookmark(za.za_name, &zb);
@@ -596,8 +597,11 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 		zep.zb_level = zb.zb_level;
 		zep.zb_blkid = zb.zb_blkid;
 
+		/*
+		 * We cannot use get_head_and_birth_txg() because it will
+		 * acquire the pool config lock, which we already have.
+		 */
 		uint64_t head_dataset_obj;
-
 		dsl_pool_t *dp = spa->spa_dsl_pool;
 		dsl_dataset_t *ds;
 		objset_t *os;
@@ -607,7 +611,8 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 			continue;
 
 		ASSERT3P(&head_dataset_obj, !=, NULL);
-		head_dataset_obj = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
+		head_dataset_obj =
+		    dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
 		if (dmu_objset_from_ds(ds, &os) != 0) {
 			dsl_dataset_rele(ds, FTAG);
@@ -623,8 +628,8 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 		}
 
 		rw_enter(&dn->dn_struct_rwlock, RW_READER);
-		err = dbuf_dnode_findbp(dn, zep.zb_level, zep.zb_blkid, &bp, NULL,
-		    NULL);
+		err = dbuf_dnode_findbp(dn, zep.zb_level, zep.zb_blkid, &bp,
+		    NULL, NULL);
 
 		if (err != 0 || BP_IS_HOLE(&bp)) {
 			rw_exit(&dn->dn_struct_rwlock);
@@ -639,7 +644,7 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 		dsl_dataset_rele(ds, FTAG);
 
 		uint64_t err_obj;
-		int error = zap_lookup_int_key(spa->spa_meta_objset, obj,
+		int error = zap_lookup_int_key(spa->spa_meta_objset, *newobj,
 		    head_dataset_obj, &err_obj);
 
 		if (error == ENOENT) {
@@ -647,7 +652,7 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 			    DMU_OT_ERROR_LOG, DMU_OT_NONE, 0, tx);
 
 			(void) zap_update_int_key(spa->spa_meta_objset,
-			    obj, head_dataset_obj, err_obj, tx);
+			    *newobj, head_dataset_obj, err_obj, tx);
 		}
 
 		char buf[64];
@@ -659,9 +664,25 @@ update_errlog(spa_t *spa, dmu_tx_t *tx)
 	}
 	zap_cursor_fini(&zc);
 
-	VERIFY0(dmu_object_free(spa->spa_meta_objset, spa->spa_errlog_last, tx));
-	spa->spa_errlog_last = obj;
+	VERIFY0(dmu_object_free(spa->spa_meta_objset, spa_err_obj, tx));
+}
 
+void
+spa_upgrade_errlog(spa_t *spa, dmu_tx_t *tx)
+{
+	uint64_t newobj = 0;
+
+	mutex_enter(&spa->spa_errlog_lock);
+	if (spa->spa_errlog_last != 0) {
+		sync_upgrade_errlog(spa, spa->spa_errlog_last, &newobj, tx);
+		spa->spa_errlog_last = newobj;
+	}
+
+	if (spa->spa_errlog_scrub != 0) {
+		sync_upgrade_errlog(spa, spa->spa_errlog_scrub, &newobj, tx);
+		mutex_exit(&spa->spa_errlog_lock);
+		spa->spa_errlog_scrub = newobj;
+	}
 	mutex_exit(&spa->spa_errlog_lock);
 }
 
@@ -1147,5 +1168,5 @@ EXPORT_SYMBOL(spa_get_errlists);
 EXPORT_SYMBOL(spa_delete_dataset_errlog);
 EXPORT_SYMBOL(spa_swap_errlog);
 EXPORT_SYMBOL(sync_error_list);
-EXPORT_SYMBOL(update_errlog);
+EXPORT_SYMBOL(spa_upgrade_errlog);
 #endif
