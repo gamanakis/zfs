@@ -671,8 +671,8 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 		dsl_dataset_t *ds;
 		objset_t *os;
 
-		int err = dsl_dataset_hold_obj(dp, zb.zb_objset, FTAG, &ds);
-		if (err != 0)
+		int error = dsl_dataset_hold_obj(dp, zb.zb_objset, FTAG, &ds);
+		if (error != 0)
 			continue;
 
 		head_dataset_obj =
@@ -692,10 +692,10 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 		}
 
 		rw_enter(&dn->dn_struct_rwlock, RW_READER);
-		err = dbuf_dnode_findbp(dn, zep.zb_level, zep.zb_blkid, &bp,
+		error = dbuf_dnode_findbp(dn, zep.zb_level, zep.zb_blkid, &bp,
 		    NULL, NULL);
 
-		if (err != 0 || BP_IS_HOLE(&bp)) {
+		if (error != 0 || BP_IS_HOLE(&bp)) {
 			rw_exit(&dn->dn_struct_rwlock);
 			dnode_rele(dn, FTAG);
 			dsl_dataset_rele(ds, FTAG);
@@ -708,7 +708,7 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 		dsl_dataset_rele(ds, FTAG);
 
 		uint64_t err_obj;
-		int error = zap_lookup_int_key(spa->spa_meta_objset, *newobj,
+		error = zap_lookup_int_key(spa->spa_meta_objset, *newobj,
 		    head_dataset_obj, &err_obj);
 
 		if (error == ENOENT) {
@@ -800,19 +800,18 @@ process_error_log(spa_t *spa, uint64_t obj, void *addr, uint64_t *count)
 		uint64_t head_ds_err_obj = za.za_first_integer;
 		uint64_t head_ds;
 		name_to_object(za.za_name, &head_ds);
-		int err;
 		for (zap_cursor_init(&head_ds_cursor, spa->spa_meta_objset,
 		    head_ds_err_obj); zap_cursor_retrieve(&head_ds_cursor,
 		    &head_ds_attr) == 0; zap_cursor_advance(&head_ds_cursor)) {
 
 			name_to_errphys(head_ds_attr.za_name, &head_ds_block);
-			err = process_error_block(spa, head_ds, &head_ds_block,
-			    count, addr, B_FALSE);
+			int error = process_error_block(spa, head_ds,
+			    &head_ds_block, count, addr, B_FALSE);
 
-			if (err != 0) {
+			if (error != 0) {
 				zap_cursor_fini(&head_ds_cursor);
 				zap_cursor_fini(&zc);
-				return (SET_ERROR(EFAULT));
+				return (error);
 			}
 		}
 		zap_cursor_fini(&head_ds_cursor);
@@ -849,14 +848,15 @@ process_error_list(spa_t *spa, avl_tree_t *list, void *addr, uint64_t *count)
 		zep.zb_level = se->se_bookmark.zb_level;
 		zep.zb_blkid = se->se_bookmark.zb_blkid;
 		uint64_t head_ds_obj;
-		get_head_and_birth_txg(spa, &zep,
+		int error = get_head_and_birth_txg(spa, &zep,
 		    se->se_bookmark.zb_objset, &head_ds_obj);
+		if (error != 0)
+			return (error);
 
-		if (process_error_block(spa, head_ds_obj, &zep,
-		    count, addr, B_FALSE) != 0) {
-			return (SET_ERROR(EFAULT));
-		}
-
+		error = process_error_block(spa, head_ds_obj, &zep, count,
+		    addr, B_FALSE);
+		if (error != 0)
+			return (error);
 	}
 	return (0);
 }
@@ -979,7 +979,7 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			zep.zb_blkid = se->se_bookmark.zb_blkid;
 
 			uint64_t head_dataset_obj;
-			get_head_and_birth_txg(spa, &zep,
+			(void) get_head_and_birth_txg(spa, &zep,
 			    se->se_bookmark.zb_objset, &head_dataset_obj);
 			uint64_t err_obj;
 			int error = zap_lookup_int_key(spa->spa_meta_objset,
