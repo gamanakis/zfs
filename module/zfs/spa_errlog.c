@@ -511,14 +511,15 @@ get_errlog_size(spa_t *spa, uint64_t spa_err_obj)
 	return (total);
 }
 
-static uint64_t
-get_errlist_size(spa_t *spa, avl_tree_t *tree)
+static int
+get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 {
-	uint64_t total = 0;
+	if (avl_numnodes(tree) == 0) {
+		*count = 0;
+		return (0);
+	}
 
-	if (avl_numnodes(tree) == 0)
-		return (total);
-
+	uint64_t i = 0;
 	spa_error_entry_t *se;
 	for (se = avl_first(tree); se != NULL; se = AVL_NEXT(tree, se)) {
 		zbookmark_err_phys_t zep;
@@ -526,15 +527,20 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree)
 		zep.zb_level = se->se_bookmark.zb_level;
 		zep.zb_blkid = se->se_bookmark.zb_blkid;
 		uint64_t head_ds_obj;
-		get_head_and_birth_txg(spa, &zep, se->se_bookmark.zb_objset,
-		    &head_ds_obj);
+		int error = get_head_and_birth_txg(spa, &zep,
+		    se->se_bookmark.zb_objset, &head_ds_obj);
 
-		if (process_error_block(spa, head_ds_obj, &zep, &total, NULL,
-		    B_TRUE) != 0) {
-			return (SET_ERROR(EFAULT));
-		}
+		if (error != 0)
+			return (error);
+
+		error = process_error_block(spa, head_ds_obj, &zep, &i,
+		    NULL, B_TRUE);
+		if (error != 0)
+			return (error);
+
+		*count += i;
 	}
-	return (total);
+	return (0);
 }
 #endif
 
@@ -543,44 +549,51 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree)
  * sum of both the last log and the current log, since we don't know the union
  * of these logs until we reach userland.
  */
-uint64_t
-spa_get_errlog_size(spa_t *spa)
+int
+spa_get_errlog_size(spa_t *spa, uint64_t *count)
 {
-	uint64_t total = 0;
+	uint64_t i = 0;
 
 	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
-		uint64_t count;
 		mutex_enter(&spa->spa_errlog_lock);
 		if (spa->spa_errlog_scrub != 0 &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
-		    &count) == 0)
-			total += count;
+		    &i) == 0)
+			*count += i;
 
 		if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
-		    &count) == 0)
-			total += count;
+		    &i) == 0)
+			*count += i;
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		total += avl_numnodes(&spa->spa_errlist_last);
-		total += avl_numnodes(&spa->spa_errlist_scrub);
+		*count += avl_numnodes(&spa->spa_errlist_last);
+		*count += avl_numnodes(&spa->spa_errlist_scrub);
 		mutex_exit(&spa->spa_errlist_lock);
-
 	} else {
 #ifdef _KERNEL
 		mutex_enter(&spa->spa_errlog_lock);
-		total += get_errlog_size(spa, spa->spa_errlog_last);
-		total += get_errlog_size(spa, spa->spa_errlog_scrub);
+		*count += get_errlog_size(spa, spa->spa_errlog_last);
+		*count += get_errlog_size(spa, spa->spa_errlog_scrub);
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		total += get_errlist_size(spa, &spa->spa_errlist_last);
-		total += get_errlist_size(spa, &spa->spa_errlist_scrub);
+		int error = get_errlist_size(spa, &spa->spa_errlist_last, &i);
+		if (error != 0)
+			return (error);
+
+		*count += i;
+
+		error = get_errlist_size(spa, &spa->spa_errlist_scrub, &i);
+		if (error != 0)
+			return (error);
+
+		*count += i;
 		mutex_exit(&spa->spa_errlist_lock);
 #endif
 	}
-	return (total);
+	return (0);
 }
 
 /*

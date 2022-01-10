@@ -5677,10 +5677,13 @@ zfs_ioc_error_log(zfs_cmd_t *zc)
 
 	error = spa_get_errlog(spa, (void *)(uintptr_t)zc->zc_nvlist_dst,
 	    &count);
-	if (error == 0)
+	if (error == 0) {
 		zc->zc_nvlist_dst_size = count;
-	else
-		zc->zc_nvlist_dst_size = spa_get_errlog_size(spa);
+	} else {
+		error = spa_get_errlog_size(spa, &count);
+		if (error == 0)
+			zc->zc_nvlist_dst_size = count;
+	}
 
 	spa_close(spa, FTAG);
 
