@@ -42,6 +42,7 @@ function cleanup
 {
 	log_must zinject -c all
 	datasetexists $TESTPOOL2 && log_must zpool destroy $TESTPOOL2
+	rm -f $TESTDIR/vdev_a
 }
 
 verify_runnable "both"
