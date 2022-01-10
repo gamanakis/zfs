@@ -156,39 +156,44 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	objset_t *os;
 
 	dsl_pool_config_enter(dp, FTAG);
-	int err = dsl_dataset_hold_obj(dp, ds_obj, FTAG, &ds);
-	if (err != 0) {
+	int error = dsl_dataset_hold_obj(dp, ds_obj, FTAG, &ds);
+	if (error != 0) {
 		dsl_pool_config_exit(dp, FTAG);
-		return (SET_ERROR(EFAULT));
+		return (error);
 	}
 	ASSERT3P(head_dataset_id, !=, NULL);
 	*head_dataset_id = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
-	if (dmu_objset_from_ds(ds, &os) != 0) {
+	error = dmu_objset_from_ds(ds, &os);
+	if (error != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (SET_ERROR(EFAULT));
+		return (error);
 	}
 
 	dnode_t *dn;
 	blkptr_t bp;
 
-	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0) {
+	error = dnode_hold(os, zep->zb_object, FTAG, &dn);
+	if (error != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (SET_ERROR(EFAULT));
+		return (error);
 	}
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
-	err = dbuf_dnode_findbp(dn, zep->zb_level, zep->zb_blkid, &bp, NULL,
+	error = dbuf_dnode_findbp(dn, zep->zb_level, zep->zb_blkid, &bp, NULL,
 	    NULL);
 
-	if (err != 0 || BP_IS_HOLE(&bp)) {
+	if (error == 0 && BP_IS_HOLE(&bp))
+		error = SET_ERROR(ENOENT);
+
+	if (error != 0) {
 		rw_exit(&dn->dn_struct_rwlock);
 		dnode_rele(dn, FTAG);
 		dsl_dataset_rele(ds, FTAG);
 		dsl_pool_config_exit(dp, FTAG);
-		return (SET_ERROR(EFAULT));
+		return (error);
 	}
 
 	zep->zb_birth = bp.blk_birth;
