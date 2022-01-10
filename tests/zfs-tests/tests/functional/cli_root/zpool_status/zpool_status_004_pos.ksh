@@ -42,6 +42,7 @@ function cleanup
 {
 	log_must zinject -c all
 	datasetexists $TESTPOOL2 && log_must zpool destroy $TESTPOOL2
+	rm -f $TESTDIR/vdev_a
 }
 
 verify_runnable "both"
@@ -66,9 +67,15 @@ dd if=/$TESTPOOL2/10m_file bs=1M || true
 log_must zfs snapshot $TESTPOOL2@snap
 log_must zfs clone $TESTPOOL2@snap $TESTPOOL2/clone
 
-# Look to see that snapshot, clone and filesystem our files report errors
+# Check that snapshot and clone do not report the error.
 log_mustnot eval "zpool status -v | grep '$TESTPOOL2@snap:/10m_file'"
 log_mustnot eval "zpool status -v | grep '$TESTPOOL2/clone/10m_file'"
+log_must eval "zpool status -v | grep '$TESTPOOL2/10m_file'"
+
+# Check that enabling the feature reports the error properly.
+log_must zpool set feature@head_errlog=enabled $TESTPOOL2
+log_must eval "zpool status -v | grep '$TESTPOOL2@snap:/10m_file'"
+log_must eval "zpool status -v | grep '$TESTPOOL2/clone/10m_file'"
 log_must eval "zpool status -v | grep '$TESTPOOL2/10m_file'"
 
 log_pass "'zpool status -v' with feature@head_errlog=disabled works"

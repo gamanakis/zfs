@@ -298,7 +298,7 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		if (zep->zb_birth < latest_txg) {
 			txg_to_consider = latest_txg;
 		} else {
-			/* Block neither free nor re written. */
+			/* Block neither free nor rewritten. */
 			if (!only_count) {
 				zbookmark_phys_t zb;
 				zep_to_zb(fs, zep, &zb);
@@ -366,8 +366,8 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 			if (!only_count) {
 				zbookmark_phys_t zb;
 				zep_to_zb(snap_obj, zep, &zb);
-				if (copyout(&zb, (char *)addr + (*count - 1)
-				    * sizeof (zbookmark_phys_t),
+				if (copyout(&zb, (char *)addr + (*count - 1) *
+				    sizeof (zbookmark_phys_t),
 				    sizeof (zbookmark_phys_t)) != 0) {
 					dsl_dataset_rele(ds, FTAG);
 					goto out;

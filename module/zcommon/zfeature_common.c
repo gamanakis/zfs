@@ -711,7 +711,7 @@ zpool_feature_init(void)
 
 	zfeature_register(SPA_FEATURE_HEAD_ERRLOG,
 	    "com.delphix:head_errlog", "head_errlog",
-	    "Introduce an on-disk block error log.",
+	    "Support for per-dataset on-disk error logs.",
 	    ZFEATURE_FLAG_ACTIVATE_ON_ENABLE, ZFEATURE_TYPE_BOOLEAN, NULL,
 	    sfeatures);
 
