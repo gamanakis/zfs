@@ -298,40 +298,46 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	dsl_dataset_t *ds;
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
-	if (dsl_dataset_hold_obj(dp, fs, FTAG, &ds) != 0)
-		return (SET_ERROR(EFAULT));
+	int error = dsl_dataset_hold_obj(dp, fs, FTAG, &ds);
+	if (error != 0)
+		return (error);
 
 	uint64_t latest_txg;
 	uint64_t txg_to_consider = spa->spa_syncing_txg;
 	boolean_t check_snapshot = B_TRUE;
-	if (find_block_txg(ds, zep, &latest_txg) == 0) {
-		if (zep->zb_birth < latest_txg) {
-			txg_to_consider = latest_txg;
-		} else {
-			/* Block neither free nor rewritten. */
-			if (!only_count) {
-				zbookmark_phys_t zb;
-				zep_to_zb(fs, zep, &zb);
-				if (copyout(&zb, (char *)addr + (*count - 1)
-				    * sizeof (zbookmark_phys_t),
-				    sizeof (zbookmark_phys_t)) != 0) {
-					dsl_dataset_rele(ds, FTAG);
-					return (SET_ERROR(EFAULT));
-				}
-				(*count)--;
-			} else {
-				(*count)++;
+	error = find_block_txg(ds, zep, &latest_txg);
+	if (error != 0) {
+		dsl_dataset_rele(ds, FTAG);
+		return (error);
+	}
+
+	if (zep->zb_birth < latest_txg) {
+		txg_to_consider = latest_txg;
+	} else {
+		/* Block neither free nor rewritten. */
+		if (!only_count) {
+			zbookmark_phys_t zb;
+			zep_to_zb(fs, zep, &zb);
+			if (copyout(&zb, (char *)addr + (*count - 1)
+			    * sizeof (zbookmark_phys_t),
+			    sizeof (zbookmark_phys_t)) != 0) {
+				dsl_dataset_rele(ds, FTAG);
+				return (SET_ERROR(EFAULT));
 			}
-			check_snapshot = B_FALSE;
+			(*count)--;
+		} else {
+			(*count)++;
 		}
+		check_snapshot = B_FALSE;
 	}
 
 	/* How many snapshots reference this block. */
 	uint64_t snap_count;
-	if (zap_count(spa->spa_meta_objset,
-	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count) != 0) {
+	error = zap_count(spa->spa_meta_objset,
+	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count);
+	if (error != 0) {
 		dsl_dataset_rele(ds, FTAG);
-		return (SET_ERROR(EFAULT));
+		return (error);
 	}
 
 	if (snap_count == 0) {
@@ -353,8 +359,9 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	    snap_obj_txg <= txg_to_consider) {
 
 		dsl_dataset_rele(ds, FTAG);
-		if (dsl_dataset_hold_obj(dp, snap_obj, FTAG, &ds) != 0)
-			return (SET_ERROR(EFAULT));
+		error = dsl_dataset_hold_obj(dp, snap_obj, FTAG, &ds);
+		if (error != 0)
+			goto out;
 
 		if (dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj != fs)
 			break;
@@ -363,10 +370,14 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		if (check_snapshot) {
 			affected = B_FALSE;
 			uint64_t blk_txg;
-			if (find_block_txg(ds, zep, &blk_txg) == 0 &&
-			    zep->zb_birth == blk_txg) {
-				affected = B_TRUE;
+			error = find_block_txg(ds, zep, &blk_txg);
+			if (error != 0) {
+				dsl_dataset_rele(ds, FTAG);
+				goto out;
 			}
+
+			if (error == 0 && zep->zb_birth == blk_txg)
+				affected = B_TRUE;
 		}
 
 		if (affected) {
@@ -403,10 +414,10 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 
 			dsl_pool_t *dp = spa->spa_dsl_pool;
 			dsl_dataset_t *clone;
-			int err = dsl_dataset_hold_obj(dp, za.za_first_integer,
+			error = dsl_dataset_hold_obj(dp, za.za_first_integer,
 			    FTAG, &clone);
 
-			if (err != 0) {
+			if (error != 0) {
 				zap_cursor_fini(&zc);
 				goto out;
 			}
@@ -423,21 +434,19 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 			if (!found)
 				continue;
 
-			err = check_filesystem(spa, za.za_first_integer, zep,
+			error = check_filesystem(spa, za.za_first_integer, zep,
 			    count, addr, only_count);
 
-			if (err != 0) {
+			if (error != 0) {
 				zap_cursor_fini(&zc);
 				goto out;
 			}
 		}
 		zap_cursor_fini(&zc);
 	}
-	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
-	return (0);
 out:
 	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
-	return (SET_ERROR(EFAULT));
+	return (error);
 }
 
 static uint64_t
