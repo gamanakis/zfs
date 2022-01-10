@@ -449,18 +449,20 @@ out:
 	return (error);
 }
 
-static uint64_t
-find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep)
+static int
+find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
+    uint64_t *top_affected_fs)
 {
 	dsl_dataset_t *ds;
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
-	if (dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds) != 0)
-		return (SET_ERROR(EFAULT));
+	int error = dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds);
+	if (error != 0)
+		return (error);
 
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	uint64_t snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
-	uint64_t top_affected_fs = head_ds;
+	*top_affected_fs = head_ds;
 
 	while (snap_obj != 0 && zep->zb_birth < snap_obj_txg) {
 		dsl_dataset_rele(ds, FTAG);
@@ -468,11 +470,11 @@ find_top_affected_fs(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep)
 			break;
 		snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
 		snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
-		top_affected_fs = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
+		*top_affected_fs =
+		    dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 	}
 	dsl_dataset_rele(ds, FTAG);
-
-	return (top_affected_fs);
+	return (0);
 }
 
 static int
@@ -481,9 +483,16 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 {
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 	dsl_pool_config_enter(dp, FTAG);
-	uint64_t top_affected_fs = find_top_affected_fs(spa, head_ds, zep);
-	int error = check_filesystem(spa, top_affected_fs, zep, count, addr,
+	uint64_t top_affected_fs;
+
+	int error = find_top_affected_fs(spa, head_ds, zep, &top_affected_fs);
+	if (error != 0)
+		goto out;
+
+	error = check_filesystem(spa, top_affected_fs, zep, count, addr,
 	    only_count);
+
+out:
 	dsl_pool_config_exit(dp, FTAG);
 	return (error);
 }
@@ -1120,14 +1129,16 @@ spa_delete_dataset_errlog(spa_t *spa, uint64_t ds, dmu_tx_t *tx)
 	mutex_exit(&spa->spa_errlog_lock);
 }
 
-static uint64_t
-find_txg_ancestor_snapshot(spa_t *spa, uint64_t new_head, uint64_t old_head)
+static int
+find_txg_ancestor_snapshot(spa_t *spa, uint64_t new_head, uint64_t old_head,
+    uint64_t *txg)
 {
 	dsl_dataset_t *ds;
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
-	if (dsl_dataset_hold_obj(dp, old_head, FTAG, &ds) != 0)
-		return (SET_ERROR(EFAULT));
+	int error = dsl_dataset_hold_obj(dp, old_head, FTAG, &ds);
+	if (error != 0)
+		return (error);
 
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	uint64_t snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
@@ -1146,7 +1157,8 @@ find_txg_ancestor_snapshot(spa_t *spa, uint64_t new_head, uint64_t old_head)
 	}
 	dsl_dataset_rele(ds, FTAG);
 	ASSERT(snap_obj != 0);
-	return (snap_obj_txg);
+	*txg = snap_obj_txg;
+	return (0);
 }
 
 static void
@@ -1164,7 +1176,10 @@ swap_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t new_head, uint64_t
 	if (error != 0)
 		return;
 
-	uint64_t txg = find_txg_ancestor_snapshot(spa, new_head, old_head);
+	uint64_t txg;
+	error = find_txg_ancestor_snapshot(spa, new_head, old_head, &txg);
+	if (error != 0)
+		return;
 
 	/*
 	 * Check if file system being promoted already has errlog otherwise
