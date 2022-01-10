@@ -254,23 +254,28 @@ find_block_txg(dsl_dataset_t *ds, zbookmark_err_phys_t *zep,
     uint64_t *birth_txg)
 {
 	objset_t *os;
-	if (dmu_objset_from_ds(ds, &os) != 0)
-		return (SET_ERROR(ENOENT));
+	int error = dmu_objset_from_ds(ds, &os);
+	if (error != 0)
+		return (error);
 
 	dnode_t *dn;
 	blkptr_t bp;
 
-	if (dnode_hold(os, zep->zb_object, FTAG, &dn) != 0)
-		return (SET_ERROR(ENOENT));
+	error = dnode_hold(os, zep->zb_object, FTAG, &dn);
+	if (error != 0)
+		return (error);
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
-	int err = dbuf_dnode_findbp(dn, zep->zb_level, zep->zb_blkid, &bp, NULL,
+	error = dbuf_dnode_findbp(dn, zep->zb_level, zep->zb_blkid, &bp, NULL,
 	    NULL);
 
-	if (err != 0 || BP_IS_HOLE(&bp)) {
+	if (error == 0 && BP_IS_HOLE(&bp))
+		error = SET_ERROR(ENOENT);
+
+	if (error != 0) {
 		rw_exit(&dn->dn_struct_rwlock);
 		dnode_rele(dn, FTAG);
-		return (SET_ERROR(ENOENT));
+		return (error);
 	}
 
 	*birth_txg = bp.blk_birth;
