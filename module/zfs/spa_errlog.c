@@ -956,11 +956,20 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			zep.zb_level = se->se_bookmark.zb_level;
 			zep.zb_blkid = se->se_bookmark.zb_blkid;
 
+			/*
+			 * avl_insert last
+			 * spa_log_error(spa, se->se_bookmark);
+			 */
 			uint64_t head_dataset_obj;
-			(void) get_head_and_birth_txg(spa, &zep,
+			int error = get_head_and_birth_txg(spa, &zep,
 			    se->se_bookmark.zb_objset, &head_dataset_obj);
+			if (error != 0) {
+				spa_log_error(spa, &se->se_bookmark);
+				continue;
+			}
+
 			uint64_t err_obj;
-			int error = zap_lookup_int_key(spa->spa_meta_objset,
+			error = zap_lookup_int_key(spa->spa_meta_objset,
 			    *obj, head_dataset_obj, &err_obj);
 
 			if (error == ENOENT) {
