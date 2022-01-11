@@ -6328,10 +6328,8 @@ ztest_scrub_impl(spa_t *spa)
 		txg_wait_synced(spa_get_dsl(spa), 0);
 
 	uint64_t count;
-	error = spa_get_errlog_size(spa, &count);
-	if (error != 0)
-		return (error);
-	else if (count > 0)
+	(void) spa_get_errlog_size(spa, &count);
+	if (count > 0)
 		return (ECKSUM);
 
 	ztest_pool_scrubbed = B_TRUE;

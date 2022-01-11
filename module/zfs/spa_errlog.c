@@ -306,29 +306,26 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	uint64_t txg_to_consider = spa->spa_syncing_txg;
 	boolean_t check_snapshot = B_TRUE;
 	error = find_block_txg(ds, zep, &latest_txg);
-	if (error != 0) {
-		dsl_dataset_rele(ds, FTAG);
-		return (error);
-	}
-
-	if (zep->zb_birth < latest_txg) {
-		txg_to_consider = latest_txg;
-	} else {
-		/* Block neither free nor rewritten. */
-		if (!only_count) {
-			zbookmark_phys_t zb;
-			zep_to_zb(fs, zep, &zb);
-			if (copyout(&zb, (char *)addr + (*count - 1)
-			    * sizeof (zbookmark_phys_t),
-			    sizeof (zbookmark_phys_t)) != 0) {
-				dsl_dataset_rele(ds, FTAG);
-				return (SET_ERROR(EFAULT));
-			}
-			(*count)--;
+	if (error == 0) {
+		if (zep->zb_birth < latest_txg) {
+			txg_to_consider = latest_txg;
 		} else {
-			(*count)++;
+			/* Block neither free nor rewritten. */
+			if (!only_count) {
+				zbookmark_phys_t zb;
+				zep_to_zb(fs, zep, &zb);
+				if (copyout(&zb, (char *)addr + (*count - 1)
+				    * sizeof (zbookmark_phys_t),
+				    sizeof (zbookmark_phys_t)) != 0) {
+					dsl_dataset_rele(ds, FTAG);
+					return (SET_ERROR(EFAULT));
+				}
+				(*count)--;
+			} else {
+				(*count)++;
+			}
+			check_snapshot = B_FALSE;
 		}
-		check_snapshot = B_FALSE;
 	}
 
 	/* How many snapshots reference this block. */
@@ -371,11 +368,6 @@ check_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 			affected = B_FALSE;
 			uint64_t blk_txg;
 			error = find_block_txg(ds, zep, &blk_txg);
-			if (error != 0) {
-				dsl_dataset_rele(ds, FTAG);
-				goto out;
-			}
-
 			if (error == 0 && zep->zb_birth == blk_txg)
 				affected = B_TRUE;
 		}
@@ -537,12 +529,9 @@ get_errlog_size(spa_t *spa, uint64_t spa_err_obj)
 static int
 get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 {
-	if (avl_numnodes(tree) == 0) {
-		*count = 0;
+	if (avl_numnodes(tree) == 0)
 		return (0);
-	}
 
-	uint64_t i = 0;
 	spa_error_entry_t *se;
 	for (se = avl_first(tree); se != NULL; se = AVL_NEXT(tree, se)) {
 		zbookmark_err_phys_t zep;
@@ -556,12 +545,10 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 		if (error != 0)
 			return (error);
 
-		error = process_error_block(spa, head_ds_obj, &zep, &i,
+		error = process_error_block(spa, head_ds_obj, &zep, count,
 		    NULL, B_TRUE);
 		if (error != 0)
 			return (error);
-
-		*count += i;
 	}
 	return (0);
 }
@@ -602,17 +589,14 @@ spa_get_errlog_size(spa_t *spa, uint64_t *count)
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		int error = get_errlist_size(spa, &spa->spa_errlist_last, &i);
+		int error = get_errlist_size(spa,
+		    &spa->spa_errlist_last, count);
 		if (error != 0)
 			return (error);
 
-		*count += i;
-
-		error = get_errlist_size(spa, &spa->spa_errlist_scrub, &i);
+		error = get_errlist_size(spa, &spa->spa_errlist_scrub, count);
 		if (error != 0)
 			return (error);
-
-		*count += i;
 		mutex_exit(&spa->spa_errlist_lock);
 #endif
 	}
