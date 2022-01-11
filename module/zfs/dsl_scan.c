@@ -922,9 +922,8 @@ dsl_scan_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 	spa_get_errlog_size(spa, &count);
 
 	if (dsl_scan_restarting(scn, tx))
-		spa_history_log_internal(spa, "scan aborted, "
-		    "restarting", tx, "errors=%llu",
-		    (u_longlong_t)count);
+		spa_history_log_internal(spa, "scan aborted, restarting", tx,
+		    "errors=%llu", (u_longlong_t)count);
 	else if (!complete)
 		spa_history_log_internal(spa, "scan cancelled", tx,
 		    "errors=%llu", (u_longlong_t)count);
@@ -992,8 +991,8 @@ dsl_scan_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 		if (spa_feature_is_enabled(spa, SPA_FEATURE_RESILVER_DEFER) &&
 		    vdev_clear_resilver_deferred(spa->spa_root_vdev, tx)) {
 			spa_history_log_internal(spa,
-			    "starting deferred resilver", tx, "errors "
-			    "=%llu", (u_longlong_t)count);
+			    "starting deferred resilver", tx, "errors=%llu",
+			    (u_longlong_t)count);
 			spa_async_request(spa, SPA_ASYNC_RESILVER);
 		}
 
