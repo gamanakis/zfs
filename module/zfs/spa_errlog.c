@@ -526,11 +526,12 @@ get_errlog_size(spa_t *spa, uint64_t spa_err_obj)
 	return (total);
 }
 
-static void
-get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
+static uint64_t
+get_errlist_size(spa_t *spa, avl_tree_t *tree)
 {
+	uint64_t total = 0;
 	if (avl_numnodes(tree) == 0)
-		return;
+		return (total);
 
 	spa_error_entry_t *se;
 	for (se = avl_first(tree); se != NULL; se = AVL_NEXT(tree, se)) {
@@ -549,9 +550,10 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 		(void) get_head_and_birth_txg(spa, &zep,
 		    se->se_bookmark.zb_objset, &head_ds_obj);
 
-		(void) process_error_block(spa, head_ds_obj, &zep, count,
+		(void) process_error_block(spa, head_ds_obj, &zep, &total,
 		    NULL, B_TRUE);
 	}
+	return (total);
 }
 #endif
 
@@ -590,8 +592,8 @@ spa_get_errlog_size(spa_t *spa, uint64_t *count)
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		get_errlist_size(spa, &spa->spa_errlist_last, count);
-		get_errlist_size(spa, &spa->spa_errlist_scrub, count);
+		*count += get_errlist_size(spa, &spa->spa_errlist_last);
+		*count += get_errlist_size(spa, &spa->spa_errlist_scrub);
 		mutex_exit(&spa->spa_errlist_lock);
 #endif
 	}
