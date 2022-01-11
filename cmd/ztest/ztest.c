@@ -6327,7 +6327,7 @@ ztest_scrub_impl(spa_t *spa)
 	while (dsl_scan_scrubbing(spa_get_dsl(spa)))
 		txg_wait_synced(spa_get_dsl(spa), 0);
 
-	uint64_t count;
+	uint64_t count = 0;
 	(void) spa_get_errlog_size(spa, &count);
 	if (count > 0)
 		return (ECKSUM);

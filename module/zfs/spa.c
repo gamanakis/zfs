@@ -5508,7 +5508,7 @@ spa_get_stats(const char *name, nvlist_t **config,
 
 		if (*config != NULL) {
 			uint64_t loadtimes[2];
-			uint64_t count;
+			uint64_t count = 0;
 
 			loadtimes[0] = spa->spa_loaded_ts.tv_sec;
 			loadtimes[1] = spa->spa_loaded_ts.tv_nsec;

@@ -5680,6 +5680,7 @@ zfs_ioc_error_log(zfs_cmd_t *zc)
 	if (error == 0) {
 		zc->zc_nvlist_dst_size = count;
 	} else {
+		count = 0;
 		error = spa_get_errlog_size(spa, &count);
 		if (error == 0)
 			zc->zc_nvlist_dst_size = count;

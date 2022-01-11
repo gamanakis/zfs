@@ -918,7 +918,7 @@ dsl_scan_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 
 	spa_notify_waiters(spa);
 
-	uint64_t count;
+	uint64_t count = 0;
 	int error = spa_get_errlog_size(spa, &count);
 
 	if (error == 0) {
