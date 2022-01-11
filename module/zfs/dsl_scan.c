@@ -919,31 +919,18 @@ dsl_scan_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 	spa_notify_waiters(spa);
 
 	uint64_t count = 0;
-	int error = spa_get_errlog_size(spa, &count);
+	spa_get_errlog_size(spa, &count);
 
-	if (error == 0) {
-		if (dsl_scan_restarting(scn, tx))
-			spa_history_log_internal(spa, "scan aborted, "
-			    "restarting", tx, "errors=%llu",
-			    (u_longlong_t)count);
-		else if (!complete)
-			spa_history_log_internal(spa, "scan cancelled", tx,
-			    "errors=%llu", (u_longlong_t)count);
-		else
-			spa_history_log_internal(spa, "scan done", tx,
-			    "errors=%llu", (u_longlong_t)count);
-	} else {
-		if (dsl_scan_restarting(scn, tx))
-			spa_history_log_internal(spa, "scan aborted, "
-			    "restarting", tx, "unable to get number of errors "
-			    "(%d)", error);
-		else if (!complete)
-			spa_history_log_internal(spa, "scan cancelled", tx,
-			    "unable to get number of errors (%d)", error);
-		else
-			spa_history_log_internal(spa, "scan done", tx,
-			    "unable to get number of errors (%d)", error);
-	}
+	if (dsl_scan_restarting(scn, tx))
+		spa_history_log_internal(spa, "scan aborted, "
+		    "restarting", tx, "errors=%llu",
+		    (u_longlong_t)count);
+	else if (!complete)
+		spa_history_log_internal(spa, "scan cancelled", tx,
+		    "errors=%llu", (u_longlong_t)count);
+	else
+		spa_history_log_internal(spa, "scan done", tx,
+		    "errors=%llu", (u_longlong_t)count);
 
 	if (DSL_SCAN_IS_SCRUB_RESILVER(scn)) {
 		spa->spa_scrub_active = B_FALSE;
@@ -1004,16 +991,9 @@ dsl_scan_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 		 */
 		if (spa_feature_is_enabled(spa, SPA_FEATURE_RESILVER_DEFER) &&
 		    vdev_clear_resilver_deferred(spa->spa_root_vdev, tx)) {
-
-			if (error == 0) {
-				spa_history_log_internal(spa,
-				    "starting deferred resilver", tx, "errors "
-				    "=%llu", (u_longlong_t)count);
-			} else {
-				spa_history_log_internal(spa,
-				    "starting deferred resilver", tx, "unable "
-				    "to get number of errors (%d)", error);
-			}
+			spa_history_log_internal(spa,
+			    "starting deferred resilver", tx, "errors "
+			    "=%llu", (u_longlong_t)count);
 			spa_async_request(spa, SPA_ASYNC_RESILVER);
 		}
 

@@ -5515,7 +5515,7 @@ spa_get_stats(const char *name, nvlist_t **config,
 			fnvlist_add_uint64_array(*config,
 			    ZPOOL_CONFIG_LOADED_TIME, loadtimes, 2);
 
-			(void) spa_get_errlog_size(spa, &count);
+			spa_get_errlog_size(spa, &count);
 			fnvlist_add_uint64(*config,
 			    ZPOOL_CONFIG_ERRCOUNT, count);
 

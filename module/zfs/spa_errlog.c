@@ -539,6 +539,12 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 		zep.zb_level = se->se_bookmark.zb_level;
 		zep.zb_blkid = se->se_bookmark.zb_blkid;
 
+		/*
+		 * If we cannot find out the head dataset and birth txg of
+		 * the present error block, we opt not to error out. In the
+		 * next pool sync this information will be retrieved by
+		 * sync_error_list() and written to the on-disk error log.
+		 */
 		uint64_t head_ds_obj;
 		(void) get_head_and_birth_txg(spa, &zep,
 		    se->se_bookmark.zb_objset, &head_ds_obj);
@@ -546,7 +552,6 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
 		(void) process_error_block(spa, head_ds_obj, &zep, count,
 		    NULL, B_TRUE);
 	}
-	return;
 }
 #endif
 
@@ -555,7 +560,7 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree, uint64_t *count)
  * sum of both the last log and the current log, since we don't know the union
  * of these logs until we reach userland.
  */
-int
+void
 spa_get_errlog_size(spa_t *spa, uint64_t *count)
 {
 	uint64_t i = 0;
@@ -590,7 +595,6 @@ spa_get_errlog_size(spa_t *spa, uint64_t *count)
 		mutex_exit(&spa->spa_errlist_lock);
 #endif
 	}
-	return (0);
 }
 
 /*
