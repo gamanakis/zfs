@@ -642,7 +642,8 @@ sync_upgrade_errlog(spa_t *spa, uint64_t spa_err_obj, uint64_t *newobj,
 
 		/*
 		 * We cannot use get_head_and_birth_txg() because it will
-		 * acquire the pool config lock, which we already have.
+		 * acquire the pool config lock, which we already have. In case
+		 * of an error we simply continue.
 		 */
 		uint64_t head_dataset_obj;
 		dsl_pool_t *dp = spa->spa_dsl_pool;
@@ -957,8 +958,10 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			zep.zb_blkid = se->se_bookmark.zb_blkid;
 
 			/*
-			 * avl_insert last
-			 * spa_log_error(spa, se->se_bookmark);
+			 * If we cannot find out the head dataset and birth txg
+			 * of the present error block, we append it to the
+			 * appropriate error list by calling spa_log_error()
+			 * and continue.
 			 */
 			uint64_t head_dataset_obj;
 			int error = get_head_and_birth_txg(spa, &zep,
