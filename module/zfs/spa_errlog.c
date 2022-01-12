@@ -829,6 +829,7 @@ process_error_list(spa_t *spa, avl_tree_t *list, void *addr, uint64_t *count)
 		zep.zb_object = se->se_bookmark.zb_object;
 		zep.zb_level = se->se_bookmark.zb_level;
 		zep.zb_blkid = se->se_bookmark.zb_blkid;
+
 		uint64_t head_ds_obj;
 		int error = get_head_and_birth_txg(spa, &zep,
 		    se->se_bookmark.zb_objset, &head_ds_obj);
@@ -964,13 +965,15 @@ sync_error_list(spa_t *spa, avl_tree_t *t, uint64_t *obj, dmu_tx_t *tx)
 			 * If we cannot find out the head dataset and birth txg
 			 * of the present error block, we append it to the
 			 * appropriate error list by calling spa_log_error()
-			 * and continue.
+			 * and continue. If we are syncing the final txg we this
+			 * is not possible and we simply continue.
 			 */
 			uint64_t head_dataset_obj;
 			int error = get_head_and_birth_txg(spa, &zep,
 			    se->se_bookmark.zb_objset, &head_dataset_obj);
 			if (error != 0) {
-				spa_log_error(spa, &se->se_bookmark);
+				if (tx->tx_txg != spa_final_dirty_txg(spa))
+					spa_log_error(spa, &se->se_bookmark);
 				continue;
 			}
 
