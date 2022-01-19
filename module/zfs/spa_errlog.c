@@ -728,7 +728,6 @@ spa_upgrade_errlog(spa_t *spa, dmu_tx_t *tx)
 
 	if (spa->spa_errlog_scrub != 0) {
 		sync_upgrade_errlog(spa, spa->spa_errlog_scrub, &newobj, tx);
-		mutex_exit(&spa->spa_errlog_lock);
 		spa->spa_errlog_scrub = newobj;
 	}
 	mutex_exit(&spa->spa_errlog_lock);
