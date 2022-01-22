@@ -461,6 +461,12 @@ zstream_do_dump(int argc, char *argv[])
 				    BSWAP_64(drro->drr_maxblkid);
 			}
 
+			if (drro->drr_bonuslen > drro->drr_raw_bonuslen) {
+				printf("!!! RAW<BONUSLEN!!!, object = %llu, "
+				    "bl = %u, rbl = %u\n", (u_longlong_t)drro->drr_object,
+				    drro->drr_bonuslen, drro->drr_raw_bonuslen);
+			}
+
 			payload_size = DRR_OBJECT_PAYLOAD_SIZE(drro);
 
 			if (verbose) {
