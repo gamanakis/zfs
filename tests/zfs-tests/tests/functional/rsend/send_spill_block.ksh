@@ -47,7 +47,9 @@ attrvalue="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
 
 log_onexit cleanup
 
-log_must zfs create $POOL/fs
+log_must eval "echo 'password' | zfs create -o encryption=on" \
+	"-o keyformat=passphrase -o keylocation=prompt " \
+	"$POOL/fs"
 log_must zfs set xattr=sa $POOL/fs
 log_must zfs set dnodesize=legacy $POOL/fs
 log_must zfs set recordsize=128k $POOL/fs
@@ -65,7 +67,7 @@ done
 
 # Snapshot the pool and send it to the new dataset.
 log_must zfs snapshot $POOL/fs@snap1
-log_must eval "zfs send -e $POOL/fs@snap1 >$BACKDIR/fs@snap1"
+log_must eval "zfs send -w $POOL/fs@snap1 >$BACKDIR/fs@snap1"
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs@snap1"
 
 #
@@ -143,8 +145,10 @@ expected_cksum=$(recursive_cksum /$POOL/fs)
 
 # Snapshot the pool and send the incremental snapshot.
 log_must zfs snapshot $POOL/fs@snap2
-log_must eval "zfs send -e -i $POOL/fs@snap1 $POOL/fs@snap2 >$BACKDIR/fs@snap2"
-log_must eval "zfs recv -F $POOL/newfs < $BACKDIR/fs@snap2"
+log_must eval "zfs send -w -i $POOL/fs@snap1 $POOL/fs@snap2 >$BACKDIR/fs@snap2"
+log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs@snap2"
+log_must eval "echo 'password' | zfs load-key $POOL/newfs"
+log_must zfs mount $POOL/newfs
 
 # Validate the received copy using the received recursive checksum.
 actual_cksum=$(recursive_cksum /$POOL/newfs)

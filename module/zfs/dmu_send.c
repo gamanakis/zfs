@@ -764,6 +764,12 @@ dump_dnode(dmu_send_cookie_t *dscp, const blkptr_t *bp, uint64_t object,
 		 */
 		if (bonuslen != 0) {
 			drro->drr_raw_bonuslen = DN_MAX_BONUS_LEN(dnp);
+			if (drro->drr_raw_bonuslen < drro->drr_bonuslen) {
+				cmn_err(CE_NOTE, "dn_max: %u, spill: %d, bonuslen: %u",
+				    drro->drr_raw_bonuslen,
+				    (dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR),
+				    drro->drr_bonuslen);
+			}
 			bonuslen = drro->drr_raw_bonuslen;
 		}
 	}
