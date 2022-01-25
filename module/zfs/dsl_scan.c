@@ -1850,6 +1850,14 @@ dsl_scan_recurse(dsl_scan_t *scn, dsl_dataset_t *ds, dmu_objset_type_t ostype,
 			    ds, scn, ostype, tx);
 		}
 		arc_buf_destroy(buf, &buf);
+
+		if (dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) {
+			if (dnp->dn_bonuslen > DN_MAX_BONUS_LEN(dnp)) {
+				scn->scn_phys.scn_errors++;
+				spa_log_error(dp->dp_spa, zb);
+				return (SET_ERROR(EINVAL));
+			}
+		}
 	} else if (BP_GET_TYPE(bp) == DMU_OT_DNODE) {
 		arc_flags_t flags = ARC_FLAG_WAIT;
 		dnode_phys_t *cdnp;
