@@ -701,7 +701,6 @@ zpool_feature_init(void)
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_NONE
 	};
-
 	zfeature_register(SPA_FEATURE_ZILSAXATTR,
 	    "org.openzfs:zilsaxattr", "zilsaxattr",
 	    "Support for xattr=sa extended attribute logging in ZIL.",

@@ -565,41 +565,42 @@ get_errlist_size(spa_t *spa, avl_tree_t *tree)
  * sum of both the last log and the current log, since we don't know the union
  * of these logs until we reach userland.
  */
-void
-spa_get_errlog_size(spa_t *spa, uint64_t *count)
+uint64_t
+spa_get_errlog_size(spa_t *spa)
 {
-	uint64_t i = 0;
+	uint64_t total = 0, count;
 
 	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
 		mutex_enter(&spa->spa_errlog_lock);
 		if (spa->spa_errlog_scrub != 0 &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_scrub,
-		    &i) == 0)
-			*count += i;
+		    &count) == 0)
+			total += count;
 
 		if (spa->spa_errlog_last != 0 && !spa->spa_scrub_finished &&
 		    zap_count(spa->spa_meta_objset, spa->spa_errlog_last,
-		    &i) == 0)
-			*count += i;
+		    &count) == 0)
+			total += count;
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		*count += avl_numnodes(&spa->spa_errlist_last);
-		*count += avl_numnodes(&spa->spa_errlist_scrub);
+		total += avl_numnodes(&spa->spa_errlist_last);
+		total += avl_numnodes(&spa->spa_errlist_scrub);
 		mutex_exit(&spa->spa_errlist_lock);
 	} else {
 #ifdef _KERNEL
 		mutex_enter(&spa->spa_errlog_lock);
-		*count += get_errlog_size(spa, spa->spa_errlog_last);
-		*count += get_errlog_size(spa, spa->spa_errlog_scrub);
+		total += get_errlog_size(spa, spa->spa_errlog_last);
+		total += get_errlog_size(spa, spa->spa_errlog_scrub);
 		mutex_exit(&spa->spa_errlog_lock);
 
 		mutex_enter(&spa->spa_errlist_lock);
-		*count += get_errlist_size(spa, &spa->spa_errlist_last);
-		*count += get_errlist_size(spa, &spa->spa_errlist_scrub);
+		total += get_errlist_size(spa, &spa->spa_errlist_last);
+		total += get_errlist_size(spa, &spa->spa_errlist_scrub);
 		mutex_exit(&spa->spa_errlist_lock);
 #endif
 	}
+	return (total);
 }
 
 /*

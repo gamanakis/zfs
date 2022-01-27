@@ -5508,16 +5508,15 @@ spa_get_stats(const char *name, nvlist_t **config,
 
 		if (*config != NULL) {
 			uint64_t loadtimes[2];
-			uint64_t count = 0;
 
 			loadtimes[0] = spa->spa_loaded_ts.tv_sec;
 			loadtimes[1] = spa->spa_loaded_ts.tv_nsec;
 			fnvlist_add_uint64_array(*config,
 			    ZPOOL_CONFIG_LOADED_TIME, loadtimes, 2);
 
-			spa_get_errlog_size(spa, &count);
 			fnvlist_add_uint64(*config,
-			    ZPOOL_CONFIG_ERRCOUNT, count);
+			    ZPOOL_CONFIG_ERRCOUNT,
+			    spa_get_errlog_size(spa));
 
 			if (spa_suspended(spa)) {
 				fnvlist_add_uint64(*config,
