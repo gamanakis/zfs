@@ -25,7 +25,14 @@ PACKAGE_NAME="${pkgname}"
 PACKAGE_VERSION="${pkgver}"
 PACKAGE_CONFIG="${pkgcfg}"
 NO_WEAK_MODULES="yes"
-PRE_BUILD="configure
+
+if [[ ! -z \$(strings "\${kernel_source_dir}"/vmlinux | grep clang) ]]; then
+	clangopts=("KERNEL_LLVM=1")
+else
+	clangopts=()
+fi
+
+PRE_BUILD="configure \${clangopts}
   --prefix=/usr
   --with-config=kernel
   --with-linux=\$(
@@ -68,7 +75,7 @@ POST_BUILD="scripts/dkms.postbuild
   -t \${dkms_tree}
 "
 AUTOINSTALL="yes"
-MAKE[0]="make"
+MAKE[0]="make \${clangopts}"
 STRIP[0]="\$(
   [[ -r \${PACKAGE_CONFIG} ]] \\
   && source \${PACKAGE_CONFIG} \\
