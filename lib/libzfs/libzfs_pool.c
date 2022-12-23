@@ -2572,15 +2572,15 @@ zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func, pool_scrub_cmd_t cmd)
 	 * The following cases have been handled here:
 	 * 1. Paused a scrub/error scrub if there is none in progress.
 	 */
-	if (err == ENOENT && func != POOL_SCAN_NONE && (cmd ==
-	    POOL_SCRUB_NORMAL || cmd != POOL_ERRORSCRUB_STOP)) {
+	if (err == ENOENT && func != POOL_SCAN_NONE && cmd ==
+	    POOL_SCRUB_PAUSE) {
 		return (0);
 	}
 
 	ASSERT3U(func, >=, POOL_SCAN_NONE);
 	ASSERT3U(func, <, POOL_SCAN_FUNCS);
 
-	if (func == POOL_SCAN_SCRUB) {
+	if (func == POOL_SCAN_SCRUB || func == POOL_ERRORSCRUB) {
 		if (cmd == POOL_SCRUB_PAUSE) {
 			(void) snprintf(errbuf, sizeof (errbuf),
 			    dgettext(TEXT_DOMAIN, "cannot pause scrubbing %s"),
@@ -2590,22 +2590,6 @@ zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func, pool_scrub_cmd_t cmd)
 			(void) snprintf(errbuf, sizeof (errbuf),
 			    dgettext(TEXT_DOMAIN, "cannot scrub %s"),
 			    zc.zc_name);
-		}
-	} else if (func == POOL_ERRORSCRUB) {
-		if (cmd == POOL_SCRUB_PAUSE) {
-			(void) snprintf(errbuf, sizeof (errbuf),
-			    dgettext(TEXT_DOMAIN,
-			    "cannot pause error scrubbing %s"),
-			    zhp->zpool_name);
-		} else if (cmd == POOL_SCRUB_NORMAL) {
-			(void) snprintf(errbuf, sizeof (errbuf),
-			    dgettext(TEXT_DOMAIN,
-			    "cannot error scrub %s"), zhp->zpool_name);
-		} else {
-			assert(cmd == POOL_ERRORSCRUB_STOP);
-			(void) snprintf(errbuf, sizeof (errbuf),
-			    dgettext(TEXT_DOMAIN, "cannot cancel error "
-			    "scrubbing %s"), zhp->zpool_name);
 		}
 	} else if (func == POOL_SCAN_RESILVER) {
 		assert(cmd == POOL_SCRUB_NORMAL);

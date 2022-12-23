@@ -88,7 +88,7 @@ log_must sync_pool $TESTPOOL
 log_must zpool scrub -e $TESTPOOL
 log_must is_pool_error_scrubbing $TESTPOOL true
 log_mustnot zpool scrub $TESTPOOL
-log_must zpool scrub -e -s $TESTPOOL
+log_must zpool scrub -s $TESTPOOL
 log_must is_pool_error_scrub_stopped $TESTPOOL true
 
 log_must zpool scrub $TESTPOOL

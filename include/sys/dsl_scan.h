@@ -195,7 +195,7 @@ boolean_t dsl_errorscrubbing(const struct dsl_pool *dp);
 boolean_t dsl_errorscrub_active(dsl_scan_t *scn);
 void dsl_scan_restart_resilver(struct dsl_pool *, uint64_t txg);
 int dsl_scrub_set_pause_resume(const struct dsl_pool *dp,
-    pool_scrub_cmd_t cmd, pool_scan_func_t func);
+    pool_scrub_cmd_t cmd);
 void dsl_errorscrub_sync(struct dsl_pool *, dmu_tx_t *);
 boolean_t dsl_scan_resilvering(struct dsl_pool *dp);
 boolean_t dsl_scan_resilver_scheduled(struct dsl_pool *dp);

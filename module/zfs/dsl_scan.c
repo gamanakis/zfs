@@ -977,7 +977,7 @@ dsl_scan(dsl_pool_t *dp, pool_scan_func_t func)
 			 * got error scrub start cmd, resume paused error scrub.
 			 */
 			int err = dsl_scrub_set_pause_resume(scn->scn_dp,
-			    POOL_SCRUB_NORMAL, func);
+			    POOL_SCRUB_NORMAL);
 			if (err == 0) {
 				spa_event_notify(spa, NULL, NULL,
 				    ESC_ZFS_ERRORSCRUB_RESUME);
@@ -994,7 +994,7 @@ dsl_scan(dsl_pool_t *dp, pool_scan_func_t func)
 	if (func == POOL_SCAN_SCRUB && dsl_scan_is_paused_scrub(scn)) {
 		/* got scrub start cmd, resume paused scrub */
 		int err = dsl_scrub_set_pause_resume(scn->scn_dp,
-		    POOL_SCRUB_NORMAL, func);
+		    POOL_SCRUB_NORMAL);
 		if (err == 0) {
 			spa_event_notify(spa, NULL, NULL, ESC_ZFS_SCRUB_RESUME);
 			return (SET_ERROR(ECANCELED));
@@ -1359,10 +1359,9 @@ dsl_scrub_pause_resume_sync(void *arg, dmu_tx_t *tx)
  * Set scrub pause/resume state if it makes sense to do so
  */
 int
-dsl_scrub_set_pause_resume(const dsl_pool_t *dp, pool_scrub_cmd_t cmd,
-    pool_scan_func_t func)
+dsl_scrub_set_pause_resume(const dsl_pool_t *dp, pool_scrub_cmd_t cmd)
 {
-	if (func == POOL_ERRORSCRUB) {
+	if (dsl_errorscrubbing(dp)) {
 		return (dsl_sync_task(spa_name(dp->dp_spa),
 		    dsl_errorscrub_pause_resume_check,
 		    dsl_errorscrub_pause_resume_sync, &cmd, 3,

@@ -33,10 +33,10 @@
 # STRATEGY:
 #	1. Create a pool and create a 10MB file in it.
 #	2. Start a error scrub (-e) and verify it's doing a scrub.
-#	3. Pause error scrub (-e, -p) and verify it's paused.
-#	4. Try to pause a paused error scrub (-e, -p) and make sure that fails.
+#	3. Pause error scrub (-p) and verify it's paused.
+#	4. Try to pause a paused error scrub (-p) and make sure that fails.
 #	5. Resume the paused error scrub and verify again it's doing a scrub.
-#	6. Verify zpool scrub -s -e succeed when the system is error scrubbing.
+#	6. Verify zpool scrub -s succeed when the system is error scrubbing.
 #
 
 verify_runnable "global"
@@ -50,7 +50,7 @@ function cleanup
 
 log_onexit cleanup
 
-log_assert "Verify scrub -e, -e -p, and -e -s show the right status."
+log_assert "Verify scrub -e, -p, and -s show the right status."
 
 log_must fio --rw=write --name=job --size=10M --filename=/$TESTPOOL/10m_file
 
@@ -67,13 +67,13 @@ log_must sync_pool $TESTPOOL
 log_must set_tunable32 SCAN_SUSPEND_PROGRESS 1
 log_must zpool scrub -e $TESTPOOL
 log_must is_pool_error_scrubbing $TESTPOOL true
-log_must zpool scrub -e -p $TESTPOOL
+log_must zpool scrub -p $TESTPOOL
 log_must is_pool_error_scrub_paused $TESTPOOL true
-log_mustnot zpool scrub -e -p $TESTPOOL
+log_mustnot zpool scrub -p $TESTPOOL
 log_must is_pool_error_scrub_paused $TESTPOOL true
 log_must zpool scrub -e $TESTPOOL
 log_must is_pool_error_scrubbing $TESTPOOL true
-log_must zpool scrub -e -s $TESTPOOL
+log_must zpool scrub -s $TESTPOOL
 log_must is_pool_error_scrub_stopped $TESTPOOL true
 
-log_pass "Verified scrub -e, -s -e, and -p -e show expected status."
+log_pass "Verified scrub -e, -p, and -s show expected status."

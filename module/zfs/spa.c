@@ -8059,14 +8059,14 @@ spa_vdev_setfru(spa_t *spa, uint64_t guid, const char *newfru)
  * ==========================================================================
  */
 int
-spa_scrub_pause_resume(spa_t *spa, pool_scan_func_t func, pool_scrub_cmd_t cmd)
+spa_scrub_pause_resume(spa_t *spa, pool_scrub_cmd_t cmd)
 {
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == 0);
 
 	if (dsl_scan_resilvering(spa->spa_dsl_pool))
 		return (SET_ERROR(EBUSY));
 
-	return (dsl_scrub_set_pause_resume(spa->spa_dsl_pool, cmd, func));
+	return (dsl_scrub_set_pause_resume(spa->spa_dsl_pool, cmd));
 }
 
 int

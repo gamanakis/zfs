@@ -7285,21 +7285,15 @@ zpool_do_scrub(int argc, char **argv)
 		    "combination :-s and -p are mutually exclusive\n"));
 		usage(B_FALSE);
 	} else {
-		if (is_error_scrub) {
+		if (is_error_scrub)
 			cb.cb_type = POOL_ERRORSCRUB;
-			if (is_pause) {
-				cb.cb_scrub_cmd = POOL_SCRUB_PAUSE;
-			} else if (is_stop) {
-				cb.cb_scrub_cmd = POOL_ERRORSCRUB_STOP;
-			} else {
-				cb.cb_scrub_cmd = POOL_SCRUB_NORMAL;
-			}
+
+		if (is_pause) {
+			cb.cb_scrub_cmd = POOL_SCRUB_PAUSE;
+		} else if (is_stop) {
+			cb.cb_type = POOL_SCAN_NONE;
 		} else {
-			if (is_pause) {
-				cb.cb_scrub_cmd = POOL_SCRUB_PAUSE;
-			} else if (is_stop) {
-				cb.cb_type = POOL_SCAN_NONE;
-			}
+			cb.cb_scrub_cmd = POOL_SCRUB_NORMAL;
 		}
 	}
 

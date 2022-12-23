@@ -821,8 +821,7 @@ extern void spa_l2cache_drop(spa_t *spa);
 /* scanning */
 extern int spa_scan(spa_t *spa, pool_scan_func_t func);
 extern int spa_scan_stop(spa_t *spa, pool_scan_func_t func);
-extern int spa_scrub_pause_resume(spa_t *spa, pool_scan_func_t func,
-    pool_scrub_cmd_t flag);
+extern int spa_scrub_pause_resume(spa_t *spa, pool_scrub_cmd_t flag);
 
 /* spa syncing */
 extern void spa_sync(spa_t *spa, uint64_t txg); /* only for DMU use */

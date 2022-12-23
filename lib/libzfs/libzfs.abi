@@ -3274,8 +3274,7 @@
       <underlying-type type-id='9cac1fee'/>
       <enumerator name='POOL_SCRUB_NORMAL' value='0'/>
       <enumerator name='POOL_SCRUB_PAUSE' value='1'/>
-      <enumerator name='POOL_ERRORSCRUB_STOP' value='2'/>
-      <enumerator name='POOL_SCRUB_FLAGS_END' value='3'/>
+      <enumerator name='POOL_SCRUB_FLAGS_END' value='2'/>
     </enum-decl>
     <typedef-decl name='pool_scrub_cmd_t' type-id='a1474cbd' id='b51cf3c2'/>
     <enum-decl name='pool_initialize_func' id='5c246ad4'>
