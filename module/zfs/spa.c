@@ -8070,13 +8070,13 @@ spa_scrub_pause_resume(spa_t *spa, pool_scrub_cmd_t cmd)
 }
 
 int
-spa_scan_stop(spa_t *spa, pool_scan_func_t func)
+spa_scan_stop(spa_t *spa)
 {
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == 0);
 	if (dsl_scan_resilvering(spa->spa_dsl_pool))
 		return (SET_ERROR(EBUSY));
 
-	return (dsl_scan_cancel(spa->spa_dsl_pool, func));
+	return (dsl_scan_cancel(spa->spa_dsl_pool));
 }
 
 int

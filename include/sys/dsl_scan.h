@@ -187,7 +187,7 @@ int dsl_scan_setup_check(void *, dmu_tx_t *);
 void dsl_scan_setup_sync(void *, dmu_tx_t *);
 void dsl_scan_fini(struct dsl_pool *dp);
 void dsl_scan_sync(struct dsl_pool *, dmu_tx_t *);
-int dsl_scan_cancel(struct dsl_pool *, pool_scan_func_t func);
+int dsl_scan_cancel(struct dsl_pool *);
 int dsl_scan(struct dsl_pool *, pool_scan_func_t);
 void dsl_scan_assess_vdev(struct dsl_pool *dp, vdev_t *vd);
 boolean_t dsl_scan_scrubbing(const struct dsl_pool *dp);

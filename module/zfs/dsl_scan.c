@@ -1288,9 +1288,9 @@ dsl_scan_cancel_sync(void *arg, dmu_tx_t *tx)
 }
 
 int
-dsl_scan_cancel(dsl_pool_t *dp, pool_scan_func_t func)
+dsl_scan_cancel(dsl_pool_t *dp)
 {
-	if (func == POOL_ERRORSCRUB) {
+	if (dsl_errorscrubbing(dp)) {
 		return (dsl_sync_task(spa_name(dp->dp_spa),
 		    dsl_errorscrub_cancel_check, dsl_errorscrub_cancel_sync,
 		    NULL, 3, ZFS_SPACE_CHECK_RESERVED));
@@ -4085,7 +4085,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 
 	if (dsl_scan_resilvering(scn->scn_dp)) {
 		/* cancel the error scrub if resilver started */
-		dsl_scan_cancel(scn->scn_dp, POOL_ERRORSCRUB);
+		dsl_scan_cancel(scn->scn_dp);
 		return;
 	}
 
