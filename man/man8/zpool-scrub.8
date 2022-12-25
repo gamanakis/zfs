@@ -84,14 +84,8 @@ During this period, no completion time estimate will be provided.
 .Bl -tag -width "-s"
 .It Fl s
 Stop scrubbing.
-Along with
-.Fl e
-stops any error scrub.
 .It Fl p
 Pause scrubbing.
-Along with
-.Fl e
-pauses any error scrub.
 Scrub pause state and progress are periodically synced to disk.
 If the system is restarted or pool is exported during a paused scrub,
 even after import, scrub will remain paused until it is resumed.
@@ -107,6 +101,11 @@ again.
 Wait until scrub has completed before returning.
 .It Fl e
 Only scrub blocks in the error log.
+It is strongy advised to run error scrubs with keys loaded and filesystems
+mounted in the case of encrypted filesystems.
+Otherwise errors in encrypted filesystems that are unmounted of have unloaded
+keys will be reported as being the root filesystem.
+In such cases it is advised to run a regular scrub instead.
 Error scrubs can also be paused and canceled with
 .Fl p
 and
