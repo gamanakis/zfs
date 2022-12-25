@@ -7543,6 +7543,10 @@ print_err_scrub_status(pool_scan_stat_t *ps)
 
 	assert(ps->pss_error_scrub_func == POOL_ERRORSCRUB);
 
+	if (ps->pss_error_scrub_birth0)
+		(void) printf(gettext("error blocks with birth txg = 0, "
+		    "please run normal scrub with loaded keys\n\t"));
+
 	if (ps->pss_error_scrub_state == DSS_FINISHED) {
 		total_secs_left = end - start;
 		days_left = total_secs_left / 60 / 60 / 24;
@@ -7912,6 +7916,7 @@ print_scan_status(zpool_handle_t *zhp, nvlist_t *nvroot)
 	pool_checkpoint_stat_t *pcs = NULL;
 	pool_scan_stat_t *ps = NULL;
 	uint_t c;
+	time_t scrub_start = 0, errorscrub_start = 0;
 
 	if (nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_SCAN_STATS,
 	    (uint64_t **)&ps, &c) == 0) {
@@ -7920,18 +7925,21 @@ print_scan_status(zpool_handle_t *zhp, nvlist_t *nvroot)
 			active_resilver = (ps->pss_state == DSS_SCANNING);
 		}
 
+
 		have_resilver = (ps->pss_func == POOL_SCAN_RESILVER);
 		have_scrub = (ps->pss_func == POOL_SCAN_SCRUB);
+		scrub_start = ps->pss_start_time;
 		have_errorscrub = (ps->pss_error_scrub_func == POOL_ERRORSCRUB);
+		errorscrub_start = ps->pss_error_scrub_start;
 	}
 
 	boolean_t active_rebuild = check_rebuilding(nvroot, &rebuild_end_time);
 	boolean_t have_rebuild = (active_rebuild || (rebuild_end_time > 0));
 
 	/* Always print the scrub status when available. */
-	if (have_scrub)
+	if (have_scrub && scrub_start > errorscrub_start)
 		print_scan_scrub_resilver_status(ps);
-	if (have_errorscrub)
+	else if (have_errorscrub && errorscrub_start >= scrub_start)
 		print_err_scrub_status(ps);
 
 	/*

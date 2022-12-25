@@ -2610,6 +2610,8 @@ spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps)
 	ps->pss_error_scrub_examined = scn->errorscrub_phys.dep_examined;
 	ps->pss_error_scrub_to_be_examined =
 	    scn->errorscrub_phys.dep_to_examine;
+	ps->pss_error_scrub_birth0 =
+	    scn->errorscrub_phys.dep_birth0;
 
 	/* error scrub data not stored on disk */
 	ps->pss_pass_error_scrub_pause = spa->spa_scan_pass_errorscrub_pause;

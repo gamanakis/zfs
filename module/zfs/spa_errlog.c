@@ -165,12 +165,6 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	ASSERT(head_dataset_id);
 	*head_dataset_id = dsl_dir_phys(ds->ds_dir)->dd_head_dataset_obj;
 
-	error = dmu_objset_from_ds(ds, &os);
-	if (error != 0) {
-		dsl_dataset_rele(ds, FTAG);
-		return (error);
-	}
-
 	/*
 	 * If the key is not loaded dbuf_dnode_findbp() will error out with
 	 * EACCES. However in that case dnode_hold() will eventually call
@@ -179,12 +173,27 @@ get_head_and_birth_txg(spa_t *spa, zbookmark_err_phys_t *zep, uint64_t ds_obj,
 	 * Avoid this by checking here if the keys are loaded, if not return.
 	 * If the keys are not loaded the head_errlog feature is meaningless
 	 * as we cannot figure out the birth txg of the block pointer.
+	 *
+	 * In the case of an error scrub in an encrypted filesystem with
+	 * unloaded keys we cannot figure out the birth txg of the error block.
+	 * In that case we let the birth txg = 0. The error block will thus
+	 * be reported as being on the $ORIGIN filesystem. A subsequent error
+	 * scrub with unloaded keys will panic as we cannot obtain the objset
+	 * of the $ORIGIN filesystem. Check for this case here and return
+	 * before proceeding to obtain the objset.
 	 */
 	if (dsl_dataset_get_keystatus(ds->ds_dir) ==
-	    ZFS_KEYSTATUS_UNAVAILABLE) {
+	    ZFS_KEYSTATUS_UNAVAILABLE ||
+	    ds->ds_dir == spa_get_dsl(spa)->dp_origin_snap->ds_dir) {
 		zep->zb_birth = 0;
 		dsl_dataset_rele(ds, FTAG);
 		return (0);
+	}
+
+	error = dmu_objset_from_ds(ds, &os);
+	if (error != 0) {
+		dsl_dataset_rele(ds, FTAG);
+		return (error);
 	}
 
 	dnode_t *dn;

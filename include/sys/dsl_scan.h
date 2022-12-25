@@ -89,6 +89,7 @@ typedef struct dsl_errorscrub_phys {
 	uint64_t dep_examined; /* blocks scrubbed so far */
 	uint64_t dep_errors;	/* error scrub I/O error count */
 	uint64_t dep_paused_flags; /* flag for paused */
+	uint64_t dep_birth0; /* flag for error blocks with birth txg=0 */
 } dsl_errorscrub_phys_t;
 
 #define	ERRORSCRUB_PHYS_NUMINTS (sizeof (dsl_errorscrub_phys_t) \

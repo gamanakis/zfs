@@ -30,11 +30,18 @@
 # Verify correct output with 'zpool status -v' after corrupting a file
 #
 # STRATEGY:
-# 1. Create a pool, an ancrypted filesystem and a file
-# 2. zinject checksum errors
-# 3. Unmount the filesystem and unload the key
-# 4. Scrub the pool
-# 5. Verify we report errors in the pool in 'zpool status -v'
+#  1. Create a pool, an ancrypted filesystem and a file
+#  2. zinject checksum errors
+#  3. Unmount the filesystem and unload the key
+#  4. Scrub the pool
+#  5. Verify we report errors in the pool in 'zpool status -v'
+#  6. Error scrub the pool
+#  7. Verify we report errors in the pool in 'zpool status -v',
+#	notably in the $ORIGIN filesystem since we cannot make
+#	use of the headerr_log feature with an unloaded key
+#  8. Load the key, mount the filesystem
+#  9. Scrub the pool
+# 10. Verify we report errors in the pool in `zpool status -v`
 
 verify_runnable "both"
 
@@ -69,10 +76,29 @@ corrupt_blocks_at_level $file 0
 log_must zfs unmount $TESTPOOL2/$TESTFS1
 log_must zfs unload-key $TESTPOOL2/$TESTFS1
 log_must zpool sync $TESTPOOL2
+log_must zpool status -v $TESTPOOL2
 log_must zpool scrub $TESTPOOL2
 log_must zpool wait -t scrub $TESTPOOL2
 log_must zpool status -v $TESTPOOL2
 log_must eval "zpool status -v $TESTPOOL2 | \
     grep \"Permanent errors have been detected\""
+log_must eval "zpool status -v $TESTPOOL2 | \
+    grep \"$TESTPOOL2/$TESTFS1\""
+
+log_must zpool scrub -e $TESTPOOL2
+log_must zpool wait -t scrub $TESTPOOL2
+log_must zpool status -v $TESTPOOL2
+log_must eval "zpool status -v $TESTPOOL2 | \
+    grep \"Permanent errors have been detected\""
+
+log_must eval "echo $passphrase | zfs load-key $TESTPOOL2/$TESTFS1"
+log_must zfs mount $TESTPOOL2/$TESTFS1
+log_must zpool scrub $TESTPOOL2
+log_must zpool wait -t scrub $TESTPOOL2
+log_must zpool status -v $TESTPOOL2
+log_must eval "zpool status -v $TESTPOOL2 | \
+    grep \"Permanent errors have been detected\""
+log_must eval "zpool status -v $TESTPOOL2 | \
+    grep \"$TESTPOOL2/$TESTFS1/$TESTFILE0\""
 
 log_pass "Verify reporting errors with unloaded keys works"

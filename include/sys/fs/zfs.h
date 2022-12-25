@@ -1099,6 +1099,8 @@ typedef struct pool_scan_stat {
 	uint64_t	pss_error_scrub_start;	/* error scrub start time */
 	uint64_t	pss_error_scrub_end;	/* error scrub end time */
 	uint64_t	pss_error_scrub_examined; /* error blocks issued I/O */
+	/* error blocks with birth txg = 0 */
+	uint64_t	pss_error_scrub_birth0;
 	/* error blocks to be issued I/O */
 	uint64_t	pss_error_scrub_to_be_examined;
 

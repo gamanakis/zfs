@@ -718,6 +718,7 @@ dsl_errorscrub_setup_sync(void *arg, dmu_tx_t *tx)
 	scn->errorscrub_phys.dep_examined = 0;
 	scn->errorscrub_phys.dep_errors = 0;
 	scn->errorscrub_phys.dep_cursor = 0;
+	scn->errorscrub_phys.dep_birth0 = 0;
 	zap_cursor_init_serialized(&scn->errorscrub_cursor,
 	    spa->spa_meta_objset, spa->spa_errlog_last,
 	    scn->errorscrub_phys.dep_cursor);
@@ -3933,34 +3934,56 @@ scrub_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	uint64_t latest_txg;
 	uint64_t txg_to_consider = spa->spa_syncing_txg;
 	boolean_t check_snapshot = B_TRUE;
+
+	/*
+	 * In the case of an error scrub in an encrypted filesystem with
+	 * unloaded keys we cannot figure out the birth txg of the error block.
+	 * In that case we let the birth txg = 0, and re-inject the error
+	 * block. We also set a flag (scn->errorscrub_phys.dep_birth0) so that
+	 * the userland code will pick this up and provide a note in `zpool
+	 * status` to run a normal scrub with loaded keys.
+	 */
+	if (zep->zb_birth == 0) {
+		scn->errorscrub_phys.dep_birth0++;
+		zbookmark_phys_t zb;
+		zep_to_zb(fs, zep, &zb);
+		spa_log_error(spa, &zb);
+		dsl_dataset_rele(ds, FTAG);
+		return (SET_ERROR(EINVAL));
+	}
+
 	error = find_birth_txg(ds, zep, &latest_txg);
-	if (error == 0) {
-		if (zep->zb_birth == latest_txg) {
-			/* Block neither free nor re written. */
-			zbookmark_phys_t zb;
-			zep_to_zb(fs, zep, &zb);
-			scn->scn_zio_root = zio_root(spa, NULL, NULL,
-			    ZIO_FLAG_CANFAIL);
-			/* We have already acquired the config lock for spa */
-			read_by_block_level(scn, zb);
 
-			(void) zio_wait(scn->scn_zio_root);
-			scn->scn_zio_root = NULL;
+	if (error) {
+		dsl_dataset_rele(ds, FTAG);
+		return (error);
+	}
 
-			scn->errorscrub_phys.dep_examined++;
-			scn->errorscrub_phys.dep_to_examine--;
-			(*count)++;
-			if ((*count) == zfs_scrub_error_blocks_in_one_txg ||
-			    dsl_error_scrub_check_suspend(scn, &zb)) {
-				dsl_dataset_rele(ds, FTAG);
-				return (SET_ERROR(EFAULT));
-			}
+	if (zep->zb_birth == latest_txg) {
+		/* Block neither free nor re written. */
+		zbookmark_phys_t zb;
+		zep_to_zb(fs, zep, &zb);
+		scn->scn_zio_root = zio_root(spa, NULL, NULL,
+		    ZIO_FLAG_CANFAIL);
+		/* We have already acquired the config lock for spa */
+		read_by_block_level(scn, zb);
 
-			check_snapshot = B_FALSE;
-		} else {
-			ASSERT3U(zep->zb_birth, <, latest_txg);
-			txg_to_consider = latest_txg;
+		(void) zio_wait(scn->scn_zio_root);
+		scn->scn_zio_root = NULL;
+
+		scn->errorscrub_phys.dep_examined++;
+		scn->errorscrub_phys.dep_to_examine--;
+		(*count)++;
+		if ((*count) == zfs_scrub_error_blocks_in_one_txg ||
+		    dsl_error_scrub_check_suspend(scn, &zb)) {
+			dsl_dataset_rele(ds, FTAG);
+			return (SET_ERROR(EFAULT));
 		}
+
+		check_snapshot = B_FALSE;
+	} else {
+		ASSERT3U(zep->zb_birth, <, latest_txg);
+		txg_to_consider = latest_txg;
 	}
 
 	/* How many snapshots reference this block. */
@@ -4145,6 +4168,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 		return;
 	}
 
+	int error = 0;
 	for (; zap_cursor_retrieve(&scn->errorscrub_cursor, &za) == 0;
 	    zap_cursor_advance(&scn->errorscrub_cursor)) {
 
@@ -4173,19 +4197,21 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 				config_held = B_TRUE;
 			}
 
-			int error = find_top_affected_fs(spa,
+			error = find_top_affected_fs(spa,
 			    head_ds, &head_ds_block, &top_affected_fs);
-			if (error != 0) {
+			if (error)
 				break;
-			}
 
 			error = scrub_filesystem(spa, top_affected_fs,
 			    &head_ds_block, &i);
 
-			if (error == 1) {
+			if (error == SET_ERROR(EFAULT)) {
 				limit_exceeded = B_TRUE;
 				break;
 			}
+
+			if (error)
+				break;
 		}
 
 		zap_cursor_fini(&head_ds_cursor);
