@@ -1260,9 +1260,9 @@ dsl_dataset_zero_zil(dsl_dataset_t *ds, dmu_tx_t *tx)
 		dsl_dataset_sync(ds, zio, tx);
 		VERIFY0(zio_wait(zio));
 
-		/* dsl_dataset_sync_done will drop this reference. */
 		dmu_buf_add_ref(ds->ds_dbuf, ds);
 		dsl_dataset_sync_done(ds, tx);
+		dmu_buf_rele(ds->ds_dbuf, ds);
 	}
 }
 
@@ -2260,10 +2260,6 @@ dsl_dataset_sync_done(dsl_dataset_t *ds, dmu_tx_t *tx)
 	else
 		ASSERT0(os->os_next_write_raw[tx->tx_txg & TXG_MASK]);
 
-	ASSERT(!dmu_objset_is_dirty(os, dmu_tx_get_txg(tx)));
-
-	dmu_buf_rele(ds->ds_dbuf, ds);
-
 	for (spa_feature_t f = 0; f < SPA_FEATURES; f++) {
 		if (zfeature_active(f,
 		    ds->ds_feature_activation[f])) {
@@ -2274,6 +2270,8 @@ dsl_dataset_sync_done(dsl_dataset_t *ds, dmu_tx_t *tx)
 			ds->ds_feature[f] = ds->ds_feature_activation[f];
 		}
 	}
+
+	ASSERT(!dmu_objset_is_dirty(os, dmu_tx_get_txg(tx)));
 }
 
 int
