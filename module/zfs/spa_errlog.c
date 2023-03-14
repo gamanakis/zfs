@@ -368,9 +368,10 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 
 	/* How many snapshots reference this block. */
 	uint64_t snap_count;
+
 	error = zap_count(spa->spa_meta_objset,
 	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count);
-	cmn_err(CE_NOTE, "zap count: %d", error);
+	cmn_err(CE_NOTE, "zap count: %d, %llu", error, dsl_dataset_phys(ds)->ds_snapnames_zapobj);
 	if (error != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		return (error);
@@ -381,9 +382,6 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		dsl_dataset_rele(ds, FTAG);
 		return (0);
 	}
-
-	uint64_t *snap_obj_array = kmem_alloc(snap_count * sizeof (uint64_t),
-	    KM_SLEEP);
 
 	int aff_snap_count = 0;
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
@@ -411,7 +409,6 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		}
 
 		if (affected) {
-			snap_obj_array[aff_snap_count] = snap_obj;
 			aff_snap_count++;
 
 			zbookmark_phys_t zb;
@@ -449,7 +446,6 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	dsl_dataset_rele(ds, FTAG);
 
 out:
-	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
 	return (error);
 }
 

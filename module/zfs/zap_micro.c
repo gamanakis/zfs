@@ -622,8 +622,10 @@ zap_lockdir(objset_t *os, uint64_t obj, dmu_tx_t *tx,
 	dmu_buf_t *db;
 
 	int err = dmu_buf_hold(os, obj, 0, tag, &db, DMU_READ_NO_PREFETCH);
-	if (err != 0)
+	if (err != 0) {
+		cmn_err(CE_NOTE, "culprittttt!");
 		return (err);
+	}
 #ifdef ZFS_DEBUG
 	{
 		dmu_object_info_t doi;
@@ -632,8 +634,10 @@ zap_lockdir(objset_t *os, uint64_t obj, dmu_tx_t *tx,
 	}
 #endif
 	err = zap_lockdir_impl(db, tag, tx, lti, fatreader, adding, zapp);
-	if (err != 0)
+	if (err != 0) {
+		cmn_err(CE_NOTE, "culprit!");
 		dmu_buf_rele(db, tag);
+	}
 	return (err);
 }
 
@@ -912,8 +916,10 @@ zap_count(objset_t *os, uint64_t zapobj, uint64_t *count)
 
 	int err =
 	    zap_lockdir(os, zapobj, NULL, RW_READER, TRUE, FALSE, FTAG, &zap);
-	if (err != 0)
+	if (err != 0) {
+		cmn_err(CE_NOTE, "zapcount err: %d", err);
 		return (err);
+	}
 	if (!zap->zap_ismicro) {
 		err = fzap_count(zap, count);
 	} else {

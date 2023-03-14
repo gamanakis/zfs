@@ -1438,8 +1438,10 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 		return (0);
 	}
 
-	if (object == 0 || object >= DN_MAX_OBJECT)
+	if (object == 0 || object >= DN_MAX_OBJECT) {
+		cmn_err(CE_NOTE, "culprit2!");
 		return (SET_ERROR(EINVAL));
+	}
 
 	mdn = DMU_META_DNODE(os);
 	ASSERT(mdn->dn_object == DMU_META_DNODE_OBJECT);
@@ -1653,6 +1655,7 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 		DNODE_STAT_BUMP(dnode_hold_free_hits);
 	} else {
 		dbuf_rele(db, FTAG);
+		cmn_err(CE_NOTE, "culprit3!");
 		return (SET_ERROR(EINVAL));
 	}
 
