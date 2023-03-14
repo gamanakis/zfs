@@ -366,31 +366,11 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		txg_to_consider = latest_txg;
 	}
 
-	/* How many snapshots reference this block. */
-	uint64_t snap_count;
-
-	error = zap_count(spa->spa_meta_objset,
-	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count);
-	cmn_err(CE_NOTE, "zap count: %d, %llu", error, dsl_dataset_phys(ds)->ds_snapnames_zapobj);
-	if (error != 0) {
-		dsl_dataset_rele(ds, FTAG);
-		return (error);
-	}
-
-	if (snap_count == 0) {
-		/* File system has no snapshot. */
-		dsl_dataset_rele(ds, FTAG);
-		return (0);
-	}
-
-	int aff_snap_count = 0;
 	uint64_t snap_obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 	uint64_t snap_obj_txg = dsl_dataset_phys(ds)->ds_prev_snap_txg;
 
 	/* Check only snapshots created from this file system. */
-	while (snap_obj != 0 && zep->zb_birth < snap_obj_txg &&
-	    snap_obj_txg <= txg_to_consider) {
-
+	while (zep->zb_birth <= snap_obj_txg) {
 		dsl_dataset_rele(ds, FTAG);
 		error = dsl_dataset_hold_obj(dp, snap_obj, FTAG, &ds);
 		cmn_err(CE_NOTE, "dsl hold2: %d", error);
@@ -409,8 +389,6 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		}
 
 		if (affected) {
-			aff_snap_count++;
-
 			zbookmark_phys_t zb;
 			zep_to_zb(snap_obj, zep, &zb);
 			error = copyout_entry(&zb, uaddr, count);
