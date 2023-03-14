@@ -327,6 +327,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 
 	int error = dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds);
+	cmn_err(CE_NOTE, "dsl hold: %d", error);
 	if (error != 0)
 		return (error);
 
@@ -334,6 +335,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	uint64_t txg_to_consider = spa->spa_syncing_txg;
 	boolean_t check_snapshot = B_TRUE;
 	error = find_birth_txg(ds, zep, &latest_txg);
+	cmn_err(CE_NOTE, "find birth txg: %d", error);
 
 	/*
 	 * If we cannot figure out the current birth txg of the block pointer
@@ -368,6 +370,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	uint64_t snap_count;
 	error = zap_count(spa->spa_meta_objset,
 	    dsl_dataset_phys(ds)->ds_snapnames_zapobj, &snap_count);
+	cmn_err(CE_NOTE, "zap count: %d", error);
 	if (error != 0) {
 		dsl_dataset_rele(ds, FTAG);
 		return (error);
@@ -392,6 +395,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 
 		dsl_dataset_rele(ds, FTAG);
 		error = dsl_dataset_hold_obj(dp, snap_obj, FTAG, &ds);
+		cmn_err(CE_NOTE, "dsl hold2: %d", error);
 		if (error != 0)
 			goto out;
 
@@ -402,6 +406,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		if (check_snapshot) {
 			uint64_t blk_txg;
 			error = find_birth_txg(ds, zep, &blk_txg);
+			cmn_err(CE_NOTE, "find birth snap: %d", error);
 			affected = (error == 0 && zep->zb_birth == blk_txg);
 		}
 
@@ -429,6 +434,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 			    zap_cursor_advance(&zc)) {
 				error = check_filesystem(spa,
 				    za.za_first_integer, zep, uaddr, count);
+				cmn_err(CE_NOTE, "check fs iter: %d", error);
 
 				if (error != 0) {
 					zap_cursor_fini(&zc);
@@ -483,6 +489,7 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		zbookmark_phys_t zb;
 		zep_to_zb(head_ds, zep, &zb);
 		int error = copyout_entry(&zb, uaddr, count);
+		cmn_err(CE_NOTE, "zb 0: %d", error);
 		if (error != 0) {
 			return (error);
 		}
@@ -491,10 +498,12 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 
 	uint64_t top_affected_fs;
 	int error = find_top_affected_fs(spa, head_ds, zep, &top_affected_fs);
+	cmn_err(CE_NOTE, "top affected fs: %d", error);
 	if (error == 0) {
 		error = check_filesystem(spa, top_affected_fs, zep,
 		    uaddr, count);
 	}
+	cmn_err(CE_NOTE, "check fs: %d", error);
 
 	return (error);
 }
@@ -884,10 +893,12 @@ process_error_list(spa_t *spa, avl_tree_t *list, void *uaddr, uint64_t *count)
 		uint64_t head_ds_obj;
 		int error = get_head_and_birth_txg(spa, &zep,
 		    se->se_bookmark.zb_objset, &head_ds_obj);
+		cmn_err(CE_NOTE, "get head: %d", error);
 
 		if (!error)
 			error = process_error_block(spa, head_ds_obj, &zep,
 			    uaddr, count);
+		cmn_err(CE_NOTE, "proc errblock: %d", error);
 		if (error)
 			return (error);
 	}
@@ -921,18 +932,22 @@ spa_get_errlog(spa_t *spa, void *uaddr, uint64_t *count)
 	mutex_enter(&spa->spa_errlog_lock);
 
 	ret = process_error_log(spa, spa->spa_errlog_scrub, uaddr, count);
+	cmn_err(CE_NOTE, "1st: %d", ret);
 
 	if (!ret && !spa->spa_scrub_finished)
 		ret = process_error_log(spa, spa->spa_errlog_last, uaddr,
 		    count);
+	cmn_err(CE_NOTE, "2st: %d", ret);
 
 	mutex_enter(&spa->spa_errlist_lock);
 	if (!ret)
 		ret = process_error_list(spa, &spa->spa_errlist_scrub, uaddr,
 		    count);
+	cmn_err(CE_NOTE, "3st: %d", ret);
 	if (!ret)
 		ret = process_error_list(spa, &spa->spa_errlist_last, uaddr,
 		    count);
+	cmn_err(CE_NOTE, "4st: %d", ret);
 	mutex_exit(&spa->spa_errlist_lock);
 
 	mutex_exit(&spa->spa_errlog_lock);

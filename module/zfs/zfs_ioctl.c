@@ -5701,6 +5701,7 @@ zfs_ioc_error_log(zfs_cmd_t *zc)
 	    &zc->zc_nvlist_dst_size);
 
 	spa_close(spa, FTAG);
+	cmn_err(CE_NOTE, "error end ioc errlog: %d", error);
 
 	return (error);
 }
