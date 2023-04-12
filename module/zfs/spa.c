@@ -8110,7 +8110,6 @@ spa_scan_stop(spa_t *spa)
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == 0);
 	if (dsl_scan_resilvering(spa->spa_dsl_pool))
 		return (SET_ERROR(EBUSY));
-
 	return (dsl_scan_cancel(spa->spa_dsl_pool));
 }
 

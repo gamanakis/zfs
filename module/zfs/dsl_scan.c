@@ -239,6 +239,8 @@ static int zfs_free_bpobj_enabled = 1;
 unsigned long zfs_scrub_error_blocks_in_one_txg = 1 << 12;
 int zfs_error_scrub_min_time_ms = 1000; /* min millisecs to error scrub txg */
 
+int zfs_max_rec = 17;
+
 /* the order has to match pool_scan_type */
 static scan_cb_t *scan_funcs[POOL_SCAN_FUNCS] = {
 	NULL,
@@ -707,6 +709,8 @@ dsl_errorscrub_sync_state(dsl_scan_t *scn, dmu_tx_t *tx)
 {
 	scn->errorscrub_phys.dep_cursor =
 	    zap_cursor_serialize(&scn->errorscrub_cursor);
+	scn->errorscrub_phys.dep_ds_cursor =
+	    zap_cursor_serialize(&scn->errorscrub_ds_cursor);
 
 	VERIFY0(zap_update(scn->scn_dp->dp_meta_objset,
 	    DMU_POOL_DIRECTORY_OBJECT,
@@ -730,13 +734,21 @@ dsl_errorscrub_setup_sync(void *arg, dmu_tx_t *tx)
 	scn->errorscrub_phys.dep_func = *funcp;
 	scn->errorscrub_phys.dep_state = DSS_ERRORSCRUBBING;
 	scn->errorscrub_phys.dep_start_time = gethrestime_sec();
-	scn->errorscrub_phys.dep_to_examine = spa_get_last_errlog_size(spa);
+	scn->errorscrub_phys.dep_to_examine = spa_approx_errlog_size(spa);
 	scn->errorscrub_phys.dep_examined = 0;
 	scn->errorscrub_phys.dep_errors = 0;
 	scn->errorscrub_phys.dep_cursor = 0;
+	scn->errorscrub_phys.dep_ds_cursor = 0;
+	scn->errorscrub_phys.dep_rec = 0;
 	zap_cursor_init_serialized(&scn->errorscrub_cursor,
 	    spa->spa_meta_objset, spa->spa_errlog_last,
 	    scn->errorscrub_phys.dep_cursor);
+
+	zap_attribute_t za;
+	zap_cursor_retrieve(&scn->errorscrub_cursor, &za);
+	zap_cursor_init_serialized(&scn->errorscrub_ds_cursor,
+	    spa->spa_meta_objset, za.za_first_integer,
+	    scn->errorscrub_phys.dep_ds_cursor);
 
 	vdev_config_dirty(spa->spa_root_vdev);
 	spa_event_notify(spa, NULL, NULL, ESC_ZFS_ERRORSCRUB_START);
@@ -1028,6 +1040,7 @@ dsl_errorscrub_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 {
 	dsl_pool_t *dp = scn->scn_dp;
 	spa_t *spa = dp->dp_spa;
+	cmn_err(CE_NOTE, "es_done: %d", complete);
 
 	if (complete) {
 		spa_event_notify(spa, NULL, NULL, ESC_ZFS_ERRORSCRUB_FINISH);
@@ -1043,6 +1056,7 @@ dsl_errorscrub_done(dsl_scan_t *scn, boolean_t complete, dmu_tx_t *tx)
 	spa_errlog_rotate(spa);
 	scn->errorscrub_phys.dep_end_time = gethrestime_sec();
 	zap_cursor_fini(&scn->errorscrub_cursor);
+	zap_cursor_fini(&scn->errorscrub_ds_cursor);
 
 	if (spa->spa_errata == ZPOOL_ERRATA_ZOL_2094_SCRUB)
 		spa->spa_errata = 0;
@@ -1253,6 +1267,12 @@ dsl_errorscrub_pause_resume_sync(void *arg, dmu_tx_t *tx)
 			    &scn->errorscrub_cursor,
 			    spa->spa_meta_objset, spa->spa_errlog_last,
 			    scn->errorscrub_phys.dep_cursor);
+
+			zap_attribute_t za;
+			zap_cursor_retrieve(&scn->errorscrub_cursor, &za);
+			zap_cursor_init_serialized(&scn->errorscrub_ds_cursor,
+			    spa->spa_meta_objset, za.za_first_integer,
+			    scn->errorscrub_phys.dep_ds_cursor);
 
 			dsl_errorscrub_sync_state(scn, tx);
 		}
@@ -3965,6 +3985,11 @@ scrub_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 	dsl_pool_t *dp = spa->spa_dsl_pool;
 	dsl_scan_t *scn = dp->dp_scan;
 
+	scn->errorscrub_phys.dep_rec++;
+	if (scn->errorscrub_phys.dep_rec > zfs_max_rec) {
+		return (SET_ERROR(EFAULT));
+	}
+
 	int error = dsl_dataset_hold_obj(dp, fs, FTAG, &ds);
 	if (error != 0)
 		return (error);
@@ -4166,12 +4191,19 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 	spa_t *spa = dp->dp_spa;
 	dsl_scan_t *scn = dp->dp_scan;
 
+	cmn_err(CE_NOTE, "entering sync: %llu, exam: %llu, status: %llu, still: %llu",
+	    (u_longlong_t)scn->errorscrub_phys.dep_rec,
+	    (u_longlong_t)scn->errorscrub_phys.dep_examined,
+	    (u_longlong_t)scn->errorscrub_phys.dep_state,
+	    (u_longlong_t)scn->errorscrub_phys.dep_to_examine);
+
 	/*
 	 * Only process scans in sync pass 1.
 	 */
-
-	if (spa_sync_pass(spa) > 1)
+	if (spa_sync_pass(spa) > 1) {
+		cmn_err(CE_NOTE, "sync_pass 1");
 		return;
+	}
 
 	/*
 	 * If the spa is shutting down, then stop scanning. This will
@@ -4182,6 +4214,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 		return;
 
 	if (!dsl_errorscrub_active(scn) || dsl_errorscrub_is_paused(scn)) {
+		cmn_err(CE_NOTE, "!active || paused");
 		return;
 	}
 
@@ -4193,6 +4226,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 
 	spa->spa_scrub_active = B_TRUE;
 	scn->scn_sync_start_time = gethrtime();
+	scn->errorscrub_phys.dep_rec = 0;
 
 	/*
 	 * zfs_scan_suspend_progress can be set to disable scrub progress.
@@ -4215,12 +4249,13 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 	int i = 0;
 	zap_attribute_t *za;
 	zbookmark_phys_t *zb;
-	boolean_t limit_exceeded = B_FALSE;
 
 	za = kmem_zalloc(sizeof (zap_attribute_t), KM_SLEEP);
 	zb = kmem_zalloc(sizeof (zbookmark_phys_t), KM_SLEEP);
 
 	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
+		boolean_t limit_exceeded = B_FALSE;
+
 		for (; zap_cursor_retrieve(&scn->errorscrub_cursor, za) == 0;
 		    zap_cursor_advance(&scn->errorscrub_cursor)) {
 			name_to_bookmark(za->za_name, zb);
@@ -4257,22 +4292,18 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 	for (; zap_cursor_retrieve(&scn->errorscrub_cursor, za) == 0;
 	    zap_cursor_advance(&scn->errorscrub_cursor)) {
 
-		zap_cursor_t *head_ds_cursor;
 		zap_attribute_t *head_ds_attr;
 		zbookmark_err_phys_t head_ds_block;
 
-		head_ds_cursor = kmem_zalloc(sizeof (zap_cursor_t), KM_SLEEP);
 		head_ds_attr = kmem_zalloc(sizeof (zap_attribute_t), KM_SLEEP);
 
-		uint64_t head_ds_err_obj = za->za_first_integer;
 		uint64_t head_ds;
 		name_to_object(za->za_name, &head_ds);
 		boolean_t config_held = B_FALSE;
 		uint64_t top_affected_fs;
 
-		for (zap_cursor_init(head_ds_cursor, spa->spa_meta_objset,
-		    head_ds_err_obj); zap_cursor_retrieve(head_ds_cursor,
-		    head_ds_attr) == 0; zap_cursor_advance(head_ds_cursor)) {
+		for (; zap_cursor_retrieve(&scn->errorscrub_ds_cursor,
+		    head_ds_attr) == 0; zap_cursor_advance(&scn->errorscrub_ds_cursor)) {
 
 			name_to_errphys(head_ds_attr->za_name, &head_ds_block);
 
@@ -4293,17 +4324,23 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 			error = scrub_filesystem(spa, top_affected_fs,
 			    &head_ds_block, &i);
 
-			if (error == SET_ERROR(EFAULT)) {
-				limit_exceeded = B_TRUE;
-				break;
+			if (error == EFAULT) {
+				kmem_free(head_ds_attr, sizeof (*head_ds_attr));
+
+				if (config_held)
+					dsl_pool_config_exit(dp, FTAG);
+
+				kmem_free(za, sizeof (*za));
+				kmem_free(zb, sizeof (*zb));
+
+				dsl_errorscrub_sync_state(scn, tx);
+				return;
 			}
 
 			if (error)
 				break;
 		}
 
-		zap_cursor_fini(head_ds_cursor);
-		kmem_free(head_ds_cursor, sizeof (*head_ds_cursor));
 		kmem_free(head_ds_attr, sizeof (*head_ds_attr));
 
 		if (config_held)
@@ -4312,8 +4349,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 
 	kmem_free(za, sizeof (*za));
 	kmem_free(zb, sizeof (*zb));
-	if (!limit_exceeded)
-		dsl_errorscrub_done(scn, B_TRUE, tx);
+	dsl_errorscrub_done(scn, B_TRUE, tx);
 
 	dsl_errorscrub_sync_state(scn, tx);
 }

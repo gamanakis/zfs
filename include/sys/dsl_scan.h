@@ -83,12 +83,14 @@ typedef struct dsl_errorscrub_phys {
 	uint64_t dep_func; /* pool_scan_func_t */
 	uint64_t dep_state; /* dsl_scan_state_t */
 	uint64_t dep_cursor; /* serialized zap cursor for tracing progress */
+	uint64_t dep_ds_cursor; /* serialized zap cursor for tracing progress */
 	uint64_t dep_start_time; /* error scrub start time, unix timestamp */
 	uint64_t dep_end_time; /* error scrub end time, unix timestamp */
 	uint64_t dep_to_examine; /* total error blocks to be scrubbed */
 	uint64_t dep_examined; /* blocks scrubbed so far */
 	uint64_t dep_errors;	/* error scrub I/O error count */
 	uint64_t dep_paused_flags; /* flag for paused */
+	uint64_t dep_rec;
 } dsl_errorscrub_phys_t;
 
 #define	ERRORSCRUB_PHYS_NUMINTS (sizeof (dsl_errorscrub_phys_t) \
@@ -169,6 +171,7 @@ typedef struct dsl_scan {
 
 	/* zap cursor for tracing error scrub progress */
 	zap_cursor_t errorscrub_cursor;
+	zap_cursor_t errorscrub_ds_cursor;
 	/* members needed for syncing scan status to disk */
 	dsl_scan_phys_t scn_phys;	/* on disk representation of scan */
 	dsl_scan_phys_t scn_phys_cached;
