@@ -80,7 +80,7 @@ CFLAGS+= -DBITS_PER_LONG=32
 CFLAGS+= -DBITS_PER_LONG=64
 .endif
 
-SRCS=	vnode_if.h device_if.h bus_if.h
+SRCS=	vnode_if.h device_if.h bus_if.h opt_kstack_pages.h
 
 # avl
 SRCS+=	avl.c

@@ -41,7 +41,9 @@
 #include <sys/ccompat.h>
 #include <linux/types.h>
 
-#if KSTACK_PAGES * PAGE_SIZE >= 16384
+#define	THREAD_SIZE	KSTACK_PAGES * PAGE_SIZE
+
+#if THREAD_SIZE >= 16384
 #define	HAVE_LARGE_STACKS	1
 #endif
 

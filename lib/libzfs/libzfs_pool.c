@@ -4251,6 +4251,16 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t **nverrlistp)
 		zc.zc_nvlist_dst_size = buflen;
 		if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_ERROR_LOG,
 		    &zc) != 0) {
+			/*
+			 * ECKSUM is returned by check_filesystem() if the
+			 * stack depth is withn a page of the kernel stack
+			 * limit.
+			 */
+			if (errno == ECKSUM) {
+				printf("Kernel stack insufficient to recurse "
+				    "all filesystems\n");
+				break;
+			}
 			free(buf);
 			if (errno == ENOMEM) {
 				buflen *= 2;

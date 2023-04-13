@@ -135,10 +135,6 @@ name_to_bookmark(char *buf, zbookmark_phys_t *zb)
 }
 
 #ifdef _KERNEL
-static int check_clones(spa_t *spa, uint64_t zap_clone, uint64_t snap_count,
-    uint64_t *snap_obj_array, zbookmark_err_phys_t *zep, void* uaddr,
-    uint64_t *count);
-
 static void
 zep_to_zb(uint64_t dataset, zbookmark_err_phys_t *zep, zbookmark_phys_t *zb)
 {
@@ -291,10 +287,22 @@ copyout_entry(const zbookmark_phys_t *zb, void *uaddr, uint64_t *count)
  */
 static int
 check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
-    void *uaddr, uint64_t *count)
+    void *uaddr, uint64_t *count, int *zfs_checkfs_recursion)
 {
 	dsl_dataset_t *ds;
 	dsl_pool_t *dp = spa->spa_dsl_pool;
+
+	/*
+	 * The stack size of check_filesystem() is 208 bytes. For optimization
+	 * purposes multiply zfs_checkfs_recursion with 256 to get a rough
+	 * estimate of the stack depth. If this is within a page of the max
+	 * stack size return with an error. We return ECKSUM and not ENOMEM,
+	 * since the latter is also used when userspace needs to expand uaddr
+	 * in zpool_get_errlog().
+	 */
+	(*zfs_checkfs_recursion)++;
+	if ((*zfs_checkfs_recursion << 8) > (THREAD_SIZE - PAGE_SIZE))
+		return (ECKSUM);
 
 	int error = dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds);
 	if (error != 0)
@@ -412,24 +420,10 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		dsl_dataset_rele(ds, FTAG);
 	}
 
-	if (zap_clone != 0 && aff_snap_count > 0) {
-		error = check_clones(spa, zap_clone, snap_count, snap_obj_array,
-		    zep, uaddr, count);
-	}
+	if (zap_clone == 0 || aff_snap_count == 0)
+		return (0);
 
-out:
-	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
-	return (error);
-}
-
-/*
- * Clone checking.
- */
-static int check_clones(spa_t *spa, uint64_t zap_clone, uint64_t snap_count,
-    uint64_t *snap_obj_array, zbookmark_err_phys_t *zep, void* uaddr,
-    uint64_t *count)
-{
-	int error = 0;
+	/* Check clones. */
 	zap_cursor_t *zc;
 	zap_attribute_t *za;
 
@@ -464,7 +458,7 @@ static int check_clones(spa_t *spa, uint64_t zap_clone, uint64_t snap_count,
 			continue;
 
 		error = check_filesystem(spa, za->za_first_integer, zep,
-		    uaddr, count);
+		    uaddr, count, zfs_checkfs_recursion);
 
 		if (error != 0)
 			break;
@@ -474,6 +468,8 @@ static int check_clones(spa_t *spa, uint64_t zap_clone, uint64_t snap_count,
 	kmem_free(za, sizeof (*za));
 	kmem_free(zc, sizeof (*zc));
 
+out:
+	kmem_free(snap_obj_array, sizeof (*snap_obj_array));
 	return (error);
 }
 
@@ -523,8 +519,12 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	uint64_t top_affected_fs;
 	int error = find_top_affected_fs(spa, head_ds, zep, &top_affected_fs);
 	if (error == 0) {
+		/*
+		 * A variable to keep track of check_filesystem() recursion.
+		 */
+		int zfs_checkfs_recursion = 0;
 		error = check_filesystem(spa, top_affected_fs, zep,
-		    uaddr, count);
+		    uaddr, count, &zfs_checkfs_recursion);
 	}
 
 	return (error);
@@ -827,62 +827,84 @@ spa_upgrade_errlog(spa_t *spa, dmu_tx_t *tx)
 static int
 process_error_log(spa_t *spa, uint64_t obj, void *uaddr, uint64_t *count)
 {
-	zap_cursor_t zc;
-	zap_attribute_t za;
-
 	if (obj == 0)
 		return (0);
 
+	zap_cursor_t *zc;
+	zap_attribute_t *za;
+
+	zc = kmem_zalloc(sizeof (zap_cursor_t), KM_SLEEP);
+	za = kmem_zalloc(sizeof (zap_attribute_t), KM_SLEEP);
+
 	if (!spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG)) {
-		for (zap_cursor_init(&zc, spa->spa_meta_objset, obj);
-		    zap_cursor_retrieve(&zc, &za) == 0;
-		    zap_cursor_advance(&zc)) {
+		for (zap_cursor_init(zc, spa->spa_meta_objset, obj);
+		    zap_cursor_retrieve(zc, za) == 0;
+		    zap_cursor_advance(zc)) {
 			if (*count == 0) {
-				zap_cursor_fini(&zc);
+				zap_cursor_fini(zc);
+				kmem_free(zc, sizeof (*zc));
+				kmem_free(za, sizeof (*za));
 				return (SET_ERROR(ENOMEM));
 			}
 
 			zbookmark_phys_t zb;
-			name_to_bookmark(za.za_name, &zb);
+			name_to_bookmark(za->za_name, &zb);
 
 			int error = copyout_entry(&zb, uaddr, count);
 			if (error != 0) {
-				zap_cursor_fini(&zc);
+				zap_cursor_fini(zc);
+				kmem_free(zc, sizeof (*zc));
+				kmem_free(za, sizeof (*za));
 				return (error);
 			}
 		}
-		zap_cursor_fini(&zc);
+		zap_cursor_fini(zc);
+		kmem_free(zc, sizeof (*zc));
+		kmem_free(za, sizeof (*za));
 		return (0);
 	}
 
-	for (zap_cursor_init(&zc, spa->spa_meta_objset, obj);
-	    zap_cursor_retrieve(&zc, &za) == 0;
-	    zap_cursor_advance(&zc)) {
+	for (zap_cursor_init(zc, spa->spa_meta_objset, obj);
+	    zap_cursor_retrieve(zc, za) == 0;
+	    zap_cursor_advance(zc)) {
 
-		zap_cursor_t head_ds_cursor;
-		zap_attribute_t head_ds_attr;
+		zap_cursor_t *head_ds_cursor;
+		zap_attribute_t *head_ds_attr;
 
-		uint64_t head_ds_err_obj = za.za_first_integer;
+		head_ds_cursor = kmem_zalloc(sizeof (zap_cursor_t), KM_SLEEP);
+		head_ds_attr = kmem_zalloc(sizeof (zap_attribute_t), KM_SLEEP);
+
+		uint64_t head_ds_err_obj = za->za_first_integer;
 		uint64_t head_ds;
-		name_to_object(za.za_name, &head_ds);
-		for (zap_cursor_init(&head_ds_cursor, spa->spa_meta_objset,
-		    head_ds_err_obj); zap_cursor_retrieve(&head_ds_cursor,
-		    &head_ds_attr) == 0; zap_cursor_advance(&head_ds_cursor)) {
+		name_to_object(za->za_name, &head_ds);
+		for (zap_cursor_init(head_ds_cursor, spa->spa_meta_objset,
+		    head_ds_err_obj); zap_cursor_retrieve(head_ds_cursor,
+		    head_ds_attr) == 0; zap_cursor_advance(head_ds_cursor)) {
 
 			zbookmark_err_phys_t head_ds_block;
-			name_to_errphys(head_ds_attr.za_name, &head_ds_block);
+			name_to_errphys(head_ds_attr->za_name, &head_ds_block);
 			int error = process_error_block(spa, head_ds,
 			    &head_ds_block, uaddr, count);
 
 			if (error != 0) {
-				zap_cursor_fini(&head_ds_cursor);
-				zap_cursor_fini(&zc);
+				zap_cursor_fini(head_ds_cursor);
+				kmem_free(head_ds_cursor,
+				    sizeof (*head_ds_cursor));
+				kmem_free(head_ds_attr, sizeof (*head_ds_attr));
+
+				zap_cursor_fini(zc);
+				kmem_free(za, sizeof (*za));
+				kmem_free(zc, sizeof (*zc));
 				return (error);
 			}
 		}
-		zap_cursor_fini(&head_ds_cursor);
+		zap_cursor_fini(head_ds_cursor);
+		kmem_free(head_ds_cursor, sizeof (*head_ds_cursor));
+		kmem_free(head_ds_attr, sizeof (*head_ds_attr));
 	}
-	zap_cursor_fini(&zc);
+	zap_cursor_fini(zc);
+	kmem_free(za, sizeof (*za));
+	kmem_free(zc, sizeof (*zc));
 	return (0);
 }
 
