@@ -287,7 +287,7 @@ copyout_entry(const zbookmark_phys_t *zb, void *uaddr, uint64_t *count)
  */
 static int
 check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
-    void *uaddr, uint64_t *count, int *zfs_checkfs_recursion)
+    void *uaddr, uint64_t *count, int *zfs_checkfs_recursion, list_t *clones_list)
 {
 	dsl_dataset_t *ds;
 	dsl_pool_t *dp = spa->spa_dsl_pool;
@@ -301,8 +301,9 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 	 * in zpool_get_errlog().
 	 */
 	(*zfs_checkfs_recursion)++;
-	if ((*zfs_checkfs_recursion << 8) > (THREAD_SIZE - PAGE_SIZE))
-		return (ECKSUM);
+	cmn_err(CE_NOTE, "recurs: %d", *zfs_checkfs_recursion);
+	//if ((*zfs_checkfs_recursion << 8) > (THREAD_SIZE - PAGE_SIZE))
+	//	return (ECKSUM);
 
 	int error = dsl_dataset_hold_obj(dp, head_ds, FTAG, &ds);
 	if (error != 0)
@@ -457,8 +458,7 @@ check_filesystem(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		if (!found)
 			continue;
 
-		error = check_filesystem(spa, za->za_first_integer, zep,
-		    uaddr, count, zfs_checkfs_recursion);
+		list_insert_tail(clones_list, &za->za_first_integer);
 
 		if (error != 0)
 			break;
@@ -523,8 +523,29 @@ process_error_block(spa_t *spa, uint64_t head_ds, zbookmark_err_phys_t *zep,
 		 * A variable to keep track of check_filesystem() recursion.
 		 */
 		int zfs_checkfs_recursion = 0;
+
+		uint64_t *clone;
+		list_t clones_list;
+		typedef struct head_ds_buf {
+			uint64_t head_ds;
+			list_node_t node;
+		} head_ds_buf_t;
+
+		list_create(&clones_list, sizeof (head_ds_buf_t),
+		    offsetof(head_ds_buf_t, node));
+
 		error = check_filesystem(spa, top_affected_fs, zep,
-		    uaddr, count, &zfs_checkfs_recursion);
+		    uaddr, count, &zfs_checkfs_recursion, &clones_list);
+
+		while ((clone = list_remove_head(&clones_list)) != NULL) {
+			error = check_filesystem(spa, *clone, zep,
+			    uaddr, count, &zfs_checkfs_recursion, &clones_list);
+
+			if (error)
+				break;
+		}
+
+		list_destroy(&clones_list);
 	}
 
 	return (error);
