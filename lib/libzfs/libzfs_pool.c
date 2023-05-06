@@ -2643,7 +2643,6 @@ out:
 int
 zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func, pool_scrub_cmd_t cmd)
 {
-	zfs_cmd_t zc = {"\0"};
 	char errbuf[ERRBUFLEN];
 	int err;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
@@ -2683,20 +2682,20 @@ zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func, pool_scrub_cmd_t cmd)
 		if (cmd == POOL_SCRUB_PAUSE) {
 			(void) snprintf(errbuf, sizeof (errbuf),
 			    dgettext(TEXT_DOMAIN, "cannot pause scrubbing %s"),
-			    zc.zc_name);
+			    zhp->zpool_name);
 		} else {
 			assert(cmd == POOL_SCRUB_NORMAL);
 			(void) snprintf(errbuf, sizeof (errbuf),
 			    dgettext(TEXT_DOMAIN, "cannot scrub %s"),
-			    zc.zc_name);
+			    zhp->zpool_name);
 		}
 	} else if (func == POOL_SCAN_RESILVER) {
 		assert(cmd == POOL_SCRUB_NORMAL);
 		(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
-		    "cannot restart resilver on %s"), zc.zc_name);
+		    "cannot restart resilver on %s"), zhp->zpool_name);
 	} else if (func == POOL_SCAN_NONE) {
 		(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
-		    "cannot cancel scrubbing %s"), zc.zc_name);
+		    "cannot cancel scrubbing %s"), zhp->zpool_name);
 	} else {
 		assert(!"unexpected result");
 	}

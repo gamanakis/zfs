@@ -8192,6 +8192,10 @@ spa_scan(spa_t *spa, pool_scan_func_t func)
 		return (0);
 	}
 
+	if (func == POOL_SCAN_ERRORSCRUB &&
+	    !spa_feature_is_enabled(spa, SPA_FEATURE_HEAD_ERRLOG))
+		return (SET_ERROR(ENOTSUP));
+
 	return (dsl_scan(spa->spa_dsl_pool, func));
 }
 

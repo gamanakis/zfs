@@ -235,7 +235,6 @@ static int zfs_free_bpobj_enabled = 1;
 
 /* Error blocks to be scrubbed in one txg. */
 unsigned long zfs_scrub_error_blocks_in_one_txg = 1 << 12;
-int zfs_error_scrub_min_time_ms = 1000; /* min millisecs to error scrub txg */
 
 /* the order has to match pool_scan_type */
 static scan_cb_t *scan_funcs[POOL_SCAN_FUNCS] = {
@@ -1685,7 +1684,7 @@ dsl_error_scrub_check_suspend(dsl_scan_t *scn, const zbookmark_phys_t *zb)
 	uint64_t error_scrub_time_ns = curr_time_ns - scn->scn_sync_start_time;
 	uint64_t sync_time_ns = curr_time_ns -
 	    scn->scn_dp->dp_spa->spa_sync_starttime;
-	int mintime = zfs_error_scrub_min_time_ms;
+	int mintime = zfs_scrub_min_time_ms;
 
 	if ((NSEC2MSEC(error_scrub_time_ns) > mintime &&
 	    (txg_sync_waiting(scn->scn_dp) ||
@@ -4001,7 +4000,7 @@ scrub_filesystem(spa_t *spa, uint64_t fs, zbookmark_err_phys_t *zep,
 		}
 
 		check_snapshot = B_FALSE;
-	} else {
+	} else if (error == 0) {
 		txg_to_consider = latest_txg;
 	}
 
@@ -4127,7 +4126,7 @@ dsl_errorscrub_sync(dsl_pool_t *dp, dmu_tx_t *tx)
 	 */
 	if (zfs_scan_suspend_progress) {
 		uint64_t scan_time_ns = gethrtime() - scn->scn_sync_start_time;
-		int mintime = zfs_error_scrub_min_time_ms;
+		int mintime = zfs_scrub_min_time_ms;
 
 		while (zfs_scan_suspend_progress &&
 		    !txg_sync_waiting(scn->scn_dp) &&
@@ -5241,9 +5240,6 @@ ZFS_MODULE_PARAM(zfs, zfs_, scan_report_txgs, UINT, ZMOD_RW,
 ZFS_MODULE_PARAM(zfs, zfs_, resilver_disable_defer, INT, ZMOD_RW,
 	"Process all resilvers immediately");
 
-ZFS_MODULE_PARAM(zfs, zfs_, scrub_error_blocks_in_one_txg, ULONG, ZMOD_RW,
+ZFS_MODULE_PARAM(zfs, zfs_, scrub_error_blocks_in_one_txg, U64, ZMOD_RW,
 	"Error blocks to be scrubbed in one txg");
-
-ZFS_MODULE_PARAM(zfs, zfs_, error_scrub_min_time_ms, INT, ZMOD_RW,
-	"Min millisecs to scrub error blocks per txg");
 /* END CSTYLED */

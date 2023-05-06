@@ -1701,10 +1701,12 @@ zfs_ioc_pool_scrub(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 {
 	spa_t *spa;
 	int error;
-	pool_scan_func_t scan_type =
-	    (pool_scan_func_t)fnvlist_lookup_uint64(innvl, "scan_type");
-	pool_scrub_cmd_t scan_cmd =
-	    (pool_scrub_cmd_t)fnvlist_lookup_uint64(innvl, "scan_command");
+	uint64_t scan_type, scan_cmd;
+
+	if (nvlist_lookup_uint64(innvl, "scan_type", &scan_type) != 0)
+		return (SET_ERROR(EINVAL));
+	if (nvlist_lookup_uint64(innvl, "scan_command", &scan_cmd) != 0)
+		return (SET_ERROR(EINVAL));
 
 	if (scan_cmd >= POOL_SCRUB_FLAGS_END)
 		return (SET_ERROR(EINVAL));

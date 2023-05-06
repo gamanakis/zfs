@@ -123,11 +123,11 @@ extern "C" {
 #define	ESC_ZFS_TRIM_CANCEL		"trim_cancel"
 #define	ESC_ZFS_TRIM_RESUME		"trim_resume"
 #define	ESC_ZFS_TRIM_SUSPEND		"trim_suspend"
-#define	ESC_ZFS_ERRORSCRUB_START	"scrub_start"
-#define	ESC_ZFS_ERRORSCRUB_FINISH	"scrub_finish"
-#define	ESC_ZFS_ERRORSCRUB_ABORT	"scrub_abort"
-#define	ESC_ZFS_ERRORSCRUB_RESUME	"scrub_resume"
-#define	ESC_ZFS_ERRORSCRUB_PAUSED	"scrub_paused"
+#define	ESC_ZFS_ERRORSCRUB_START	"errorscrub_start"
+#define	ESC_ZFS_ERRORSCRUB_FINISH	"errorscrub_finish"
+#define	ESC_ZFS_ERRORSCRUB_ABORT	"errorscrub_abort"
+#define	ESC_ZFS_ERRORSCRUB_RESUME	"errorscrub_resume"
+#define	ESC_ZFS_ERRORSCRUB_PAUSED	"errorscrub_paused"
 
 /*
  * datalink subclass definitions.
