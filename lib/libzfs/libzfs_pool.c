@@ -3417,6 +3417,7 @@ zpool_vdev_attach(zpool_handle_t *zhp, const char *old_disk,
 	boolean_t avail_spare, l2cache, islog;
 	uint64_t val;
 	char *newname;
+	const char *type;
 	nvlist_t **child;
 	uint_t children;
 	nvlist_t *config_root;
@@ -3448,6 +3449,14 @@ zpool_vdev_attach(zpool_handle_t *zhp, const char *old_disk,
 	    zfeature_lookup_guid("org.openzfs:device_rebuild", NULL) != 0) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "the loaded zfs module doesn't support device rebuilds"));
+		return (zfs_error(hdl, EZFS_POOL_NOTSUP, errbuf));
+	}
+
+	type = fnvlist_lookup_string(tgt, ZPOOL_CONFIG_TYPE);
+	if (strcmp(type, VDEV_TYPE_RAIDZ) == 0 &&
+	    zfeature_lookup_guid("org.openzfs:raidz_expansion", NULL) != 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "the loaded zfs module doesn't support raidz expansion"));
 		return (zfs_error(hdl, EZFS_POOL_NOTSUP, errbuf));
 	}
 
@@ -3518,6 +3527,10 @@ zpool_vdev_attach(zpool_handle_t *zhp, const char *old_disk,
 				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 				    "cannot replace a replacing device"));
 			}
+		} else if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "raidz_expansion feature must be enabled "
+			    "in order to attach a device to raidz"));
 		} else {
 			char status[64] = {0};
 			zpool_prop_get_feature(zhp,
@@ -3547,8 +3560,7 @@ zpool_vdev_attach(zpool_handle_t *zhp, const char *old_disk,
 		break;
 
 	case EBUSY:
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "%s is busy, "
-		    "or device removal is in progress"),
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "%s is busy"),
 		    new_disk);
 		(void) zfs_error(hdl, EZFS_BADDEV, errbuf);
 		break;
@@ -3579,6 +3591,33 @@ zpool_vdev_attach(zpool_handle_t *zhp, const char *old_disk,
 		(void) zfs_error(hdl, EZFS_DEVOVERFLOW, errbuf);
 		break;
 
+	case ENXIO:
+		/*
+		 * The existing raidz vdev has offline children
+		 */
+		if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "raidz vdev has devices that are are offline or "
+			    "being replaced"));
+			(void) zfs_error(hdl, EZFS_BADDEV, errbuf);
+			break;
+		} else {
+			(void) zpool_standard_error(hdl, errno, errbuf);
+		}
+		break;
+
+	case EADDRINUSE:
+		/*
+		 * The boot reserved area is already being used (FreeBSD)
+		 */
+		if (strcmp(type, VDEV_TYPE_RAIDZ) == 0) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "the reserved boot area needed for the expansion "
+			    "is already being used by a boot loader"));
+		} else {
+			(void) zpool_standard_error(hdl, errno, errbuf);
+		}
+		break;
 	default:
 		(void) zpool_standard_error(hdl, errno, errbuf);
 	}
