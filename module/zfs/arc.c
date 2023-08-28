@@ -905,12 +905,6 @@ static void l2arc_hdr_arcstats_update(arc_buf_hdr_t *hdr, boolean_t incr,
 int l2arc_exclude_special = 0;
 
 /*
- * l2arc_mfuonly : A ZFS module parameter that controls whether only MFU
- * 		metadata and data are cached from ARC into L2ARC.
- */
-static int l2arc_mfuonly = 0;
-
-/*
  * L2ARC TRIM
  * l2arc_trim_ahead : A ZFS module parameter that controls how much ahead of
  * 		the current write size (l2arc_write_max) we should TRIM if we
@@ -1038,6 +1032,7 @@ buf_hash_find(uint64_t spa, const blkptr_t *bp, kmutex_t **lockp)
  * Otherwise returns NULL.
  * If lockp == NULL, the caller is assumed to already hold the hash lock.
  */
+
 static arc_buf_hdr_t *
 buf_hash_insert(arc_buf_hdr_t *hdr, kmutex_t **lockp)
 {
@@ -8150,7 +8145,8 @@ l2arc_write_eligible(uint64_t spa_guid, arc_buf_hdr_t *hdr)
 	 * 4. is flagged not eligible (zfs property).
 	 */
 	if (hdr->b_spa != spa_guid || HDR_HAS_L2HDR(hdr) ||
-	    HDR_IO_IN_PROGRESS(hdr) || !HDR_L2CACHE(hdr))
+	    HDR_IO_IN_PROGRESS(hdr) || !HDR_L2CACHE(hdr) ||
+	    hdr->b_l1hdr.b_state == arc_anon)
 		return (B_FALSE);
 
 	return (B_TRUE);
@@ -8745,51 +8741,6 @@ l2arc_read_done(zio_t *zio)
 }
 
 /*
- * This is the list priority from which the L2ARC will search for pages to
- * cache.  This is used within loops (0..3) to cycle through lists in the
- * desired order.  This order can have a significant effect on cache
- * performance.
- *
- * Currently the metadata lists are hit first, MFU then MRU, followed by
- * the data lists.  This function returns a locked list, and also returns
- * the lock pointer.
- */
-static multilist_sublist_t *
-l2arc_sublist_lock(int list_num)
-{
-	multilist_t *ml = NULL;
-	unsigned int idx;
-
-	ASSERT(list_num >= 0 && list_num < L2ARC_FEED_TYPES);
-
-	switch (list_num) {
-	case 0:
-		ml = &arc_mfu->arcs_list[ARC_BUFC_METADATA];
-		break;
-	case 1:
-		ml = &arc_mru->arcs_list[ARC_BUFC_METADATA];
-		break;
-	case 2:
-		ml = &arc_mfu->arcs_list[ARC_BUFC_DATA];
-		break;
-	case 3:
-		ml = &arc_mru->arcs_list[ARC_BUFC_DATA];
-		break;
-	default:
-		return (NULL);
-	}
-
-	/*
-	 * Return a randomly-selected sublist. This is acceptable
-	 * because the caller feeds only a little bit of data for each
-	 * call (8MB). Subsequent calls will result in different
-	 * sublists being selected.
-	 */
-	idx = multilist_get_random_index(ml);
-	return (multilist_sublist_lock(ml, idx));
-}
-
-/*
  * Calculates the maximum overhead of L2ARC metadata log blocks for a given
  * L2ARC write size. l2arc_evict and l2arc_write_size need to include this
  * overhead in processing to make sure there is enough headroom available
@@ -9197,9 +9148,8 @@ l2arc_blk_fetch_done(zio_t *zio)
 static uint64_t
 l2arc_write_buffers(spa_t *spa, l2arc_dev_t *dev, uint64_t target_sz)
 {
-	arc_buf_hdr_t 		*hdr, *hdr_prev, *head;
+	arc_buf_hdr_t 		*hdr, *head;
 	uint64_t 		write_asize, write_psize, write_lsize, headroom;
-	boolean_t		full;
 	l2arc_write_callback_t	*cb = NULL;
 	zio_t 			*pio, *wzio;
 	uint64_t 		guid = spa_load_guid(spa);
@@ -9209,221 +9159,211 @@ l2arc_write_buffers(spa_t *spa, l2arc_dev_t *dev, uint64_t target_sz)
 
 	pio = NULL;
 	write_lsize = write_asize = write_psize = 0;
-	full = B_FALSE;
 	head = kmem_cache_alloc(hdr_l2only_cache, KM_PUSHPAGE);
 	arc_hdr_set_flags(head, ARC_FLAG_L2_WRITE_HEAD | ARC_FLAG_HAS_L2HDR);
 
 	/*
 	 * Copy buffers for L2ARC writing.
 	 */
-	for (int pass = 0; pass < L2ARC_FEED_TYPES; pass++) {
-		/*
-		 * If pass == 1 or 3, we cache MRU metadata and data
-		 * respectively.
-		 */
-		if (l2arc_mfuonly) {
-			if (pass == 1 || pass == 3)
-				continue;
+	uint64_t passed_sz = 0;
+
+
+	headroom = target_sz * l2arc_headroom;
+	if (zfs_compressed_arc_enabled)
+		headroom = (headroom * l2arc_headroom_boost) / 100;
+
+	uint64_t i = 0;
+	/*
+#ifdef _KERNEL
+	 * Sweeping the full buf cache takes about 1.5-10 msecs on a machine
+	 * with 8Gb RAM.
+	hrtime_t start, end;
+	start = gethrtime();
+#endif
+	 */
+	for (i = 0; i <= buf_hash_table.ht_mask; i++) {
+		kmutex_t *hash_lock;
+		abd_t *to_write = NULL;
+
+		hdr = buf_hash_table.ht_table[i];
+		if (hdr == NULL)
+			continue;
+
+		hash_lock = HDR_LOCK(hdr);
+		if (!mutex_tryenter(hash_lock)) {
+			/*
+			 * Skip this buffer rather than waiting.
+			 */
+			continue;
 		}
 
-		multilist_sublist_t *mls = l2arc_sublist_lock(pass);
-		uint64_t passed_sz = 0;
+		passed_sz += HDR_GET_LSIZE(hdr);
+		if (l2arc_headroom != 0 && passed_sz > headroom) {
+			/*
+			 * Searched too far.
+			 */
+			mutex_exit(hash_lock);
+			break;
+		}
 
-		VERIFY3P(mls, !=, NULL);
+		if (!l2arc_write_eligible(guid, hdr)) {
+			mutex_exit(hash_lock);
+			continue;
+		}
+
+		ASSERT(HDR_HAS_L1HDR(hdr));
+
+		ASSERT3U(HDR_GET_PSIZE(hdr), >, 0);
+		ASSERT3U(arc_hdr_size(hdr), >, 0);
+		ASSERT(hdr->b_l1hdr.b_pabd != NULL ||
+		    HDR_HAS_RABD(hdr));
+		uint64_t psize = HDR_GET_PSIZE(hdr);
+		uint64_t asize = vdev_psize_to_asize(dev->l2ad_vdev,
+		    psize);
 
 		/*
-		 * L2ARC fast warmup.
-		 *
-		 * Until the ARC is warm and starts to evict, read from the
-		 * head of the ARC lists rather than the tail.
+		 * If the allocated size of this buffer plus the max
+		 * size for the pending log block exceeds the evicted
+		 * target size, terminate writing buffers for this run.
 		 */
-		if (arc_warm == B_FALSE)
-			hdr = multilist_sublist_head(mls);
-		else
-			hdr = multilist_sublist_tail(mls);
+		if (write_asize + asize +
+		    sizeof (l2arc_log_blk_phys_t) > target_sz) {
+			mutex_exit(hash_lock);
+			break;
+		}
 
-		headroom = target_sz * l2arc_headroom;
-		if (zfs_compressed_arc_enabled)
-			headroom = (headroom * l2arc_headroom_boost) / 100;
+		/*
+		 * We rely on the L1 portion of the header below, so
+		 * it's invalid for this header to have been evicted out
+		 * of the ghost cache, prior to being written out. The
+		 * ARC_FLAG_L2_WRITING bit ensures this won't happen.
+		 */
+		arc_hdr_set_flags(hdr, ARC_FLAG_L2_WRITING);
 
-		for (; hdr; hdr = hdr_prev) {
-			kmutex_t *hash_lock;
-			abd_t *to_write = NULL;
+		/*
+		 * If this header has b_rabd, we can use this since it
+		 * must always match the data exactly as it exists on
+		 * disk. Otherwise, the L2ARC can normally use the
+		 * hdr's data, but if we're sharing data between the
+		 * hdr and one of its bufs, L2ARC needs its own copy of
+		 * the data so that the ZIO below can't race with the
+		 * buf consumer. To ensure that this copy will be
+		 * available for the lifetime of the ZIO and be cleaned
+		 * up afterwards, we add it to the l2arc_free_on_write
+		 * queue. If we need to apply any transforms to the
+		 * data (compression, encryption) we will also need the
+		 * extra buffer.
+		 */
+		if (HDR_HAS_RABD(hdr) && psize == asize) {
+			to_write = hdr->b_crypt_hdr.b_rabd;
+		} else if ((HDR_COMPRESSION_ENABLED(hdr) ||
+		    HDR_GET_COMPRESS(hdr) == ZIO_COMPRESS_OFF) &&
+		    !HDR_ENCRYPTED(hdr) && !HDR_SHARED_DATA(hdr) &&
+		    psize == asize) {
+			to_write = hdr->b_l1hdr.b_pabd;
+		} else {
+			int ret;
+			arc_buf_contents_t type = arc_buf_type(hdr);
 
-			if (arc_warm == B_FALSE)
-				hdr_prev = multilist_sublist_next(mls, hdr);
-			else
-				hdr_prev = multilist_sublist_prev(mls, hdr);
-
-			hash_lock = HDR_LOCK(hdr);
-			if (!mutex_tryenter(hash_lock)) {
-				/*
-				 * Skip this buffer rather than waiting.
-				 */
+			ret = l2arc_apply_transforms(spa, hdr, asize,
+			    &to_write);
+			if (ret != 0) {
+				arc_hdr_clear_flags(hdr,
+				    ARC_FLAG_L2_WRITING);
+				mutex_exit(hash_lock);
 				continue;
 			}
 
-			passed_sz += HDR_GET_LSIZE(hdr);
-			if (l2arc_headroom != 0 && passed_sz > headroom) {
-				/*
-				 * Searched too far.
-				 */
-				mutex_exit(hash_lock);
-				break;
-			}
+			l2arc_free_abd_on_write(to_write, asize, type);
+		}
 
-			if (!l2arc_write_eligible(guid, hdr)) {
-				mutex_exit(hash_lock);
-				continue;
-			}
+		if (to_write == NULL) {
+			arc_hdr_clear_flags(hdr, ARC_FLAG_L2_WRITING);
+			mutex_exit(hash_lock);
+			continue;
+		}
 
-			ASSERT(HDR_HAS_L1HDR(hdr));
-
-			ASSERT3U(HDR_GET_PSIZE(hdr), >, 0);
-			ASSERT3U(arc_hdr_size(hdr), >, 0);
-			ASSERT(hdr->b_l1hdr.b_pabd != NULL ||
-			    HDR_HAS_RABD(hdr));
-			uint64_t psize = HDR_GET_PSIZE(hdr);
-			uint64_t asize = vdev_psize_to_asize(dev->l2ad_vdev,
-			    psize);
-
+		if (pio == NULL) {
 			/*
-			 * If the allocated size of this buffer plus the max
-			 * size for the pending log block exceeds the evicted
-			 * target size, terminate writing buffers for this run.
+			 * Insert a dummy header on the buflist so
+			 * l2arc_write_done() can find where the
+			 * write buffers begin without searching.
 			 */
-			if (write_asize + asize +
-			    sizeof (l2arc_log_blk_phys_t) > target_sz) {
-				full = B_TRUE;
-				mutex_exit(hash_lock);
-				break;
-			}
-
-			/*
-			 * We rely on the L1 portion of the header below, so
-			 * it's invalid for this header to have been evicted out
-			 * of the ghost cache, prior to being written out. The
-			 * ARC_FLAG_L2_WRITING bit ensures this won't happen.
-			 */
-			arc_hdr_set_flags(hdr, ARC_FLAG_L2_WRITING);
-
-			/*
-			 * If this header has b_rabd, we can use this since it
-			 * must always match the data exactly as it exists on
-			 * disk. Otherwise, the L2ARC can normally use the
-			 * hdr's data, but if we're sharing data between the
-			 * hdr and one of its bufs, L2ARC needs its own copy of
-			 * the data so that the ZIO below can't race with the
-			 * buf consumer. To ensure that this copy will be
-			 * available for the lifetime of the ZIO and be cleaned
-			 * up afterwards, we add it to the l2arc_free_on_write
-			 * queue. If we need to apply any transforms to the
-			 * data (compression, encryption) we will also need the
-			 * extra buffer.
-			 */
-			if (HDR_HAS_RABD(hdr) && psize == asize) {
-				to_write = hdr->b_crypt_hdr.b_rabd;
-			} else if ((HDR_COMPRESSION_ENABLED(hdr) ||
-			    HDR_GET_COMPRESS(hdr) == ZIO_COMPRESS_OFF) &&
-			    !HDR_ENCRYPTED(hdr) && !HDR_SHARED_DATA(hdr) &&
-			    psize == asize) {
-				to_write = hdr->b_l1hdr.b_pabd;
-			} else {
-				int ret;
-				arc_buf_contents_t type = arc_buf_type(hdr);
-
-				ret = l2arc_apply_transforms(spa, hdr, asize,
-				    &to_write);
-				if (ret != 0) {
-					arc_hdr_clear_flags(hdr,
-					    ARC_FLAG_L2_WRITING);
-					mutex_exit(hash_lock);
-					continue;
-				}
-
-				l2arc_free_abd_on_write(to_write, asize, type);
-			}
-
-			if (pio == NULL) {
-				/*
-				 * Insert a dummy header on the buflist so
-				 * l2arc_write_done() can find where the
-				 * write buffers begin without searching.
-				 */
-				mutex_enter(&dev->l2ad_mtx);
-				list_insert_head(&dev->l2ad_buflist, head);
-				mutex_exit(&dev->l2ad_mtx);
-
-				cb = kmem_alloc(
-				    sizeof (l2arc_write_callback_t), KM_SLEEP);
-				cb->l2wcb_dev = dev;
-				cb->l2wcb_head = head;
-				/*
-				 * Create a list to save allocated abd buffers
-				 * for l2arc_log_blk_commit().
-				 */
-				list_create(&cb->l2wcb_abd_list,
-				    sizeof (l2arc_lb_abd_buf_t),
-				    offsetof(l2arc_lb_abd_buf_t, node));
-				pio = zio_root(spa, l2arc_write_done, cb,
-				    ZIO_FLAG_CANFAIL);
-			}
-
-			hdr->b_l2hdr.b_dev = dev;
-			hdr->b_l2hdr.b_hits = 0;
-
-			hdr->b_l2hdr.b_daddr = dev->l2ad_hand;
-			hdr->b_l2hdr.b_arcs_state =
-			    hdr->b_l1hdr.b_state->arcs_state;
-			arc_hdr_set_flags(hdr, ARC_FLAG_HAS_L2HDR);
-
 			mutex_enter(&dev->l2ad_mtx);
-			list_insert_head(&dev->l2ad_buflist, hdr);
+			list_insert_head(&dev->l2ad_buflist, head);
 			mutex_exit(&dev->l2ad_mtx);
 
-			(void) zfs_refcount_add_many(&dev->l2ad_alloc,
-			    arc_hdr_size(hdr), hdr);
-
-			wzio = zio_write_phys(pio, dev->l2ad_vdev,
-			    hdr->b_l2hdr.b_daddr, asize, to_write,
-			    ZIO_CHECKSUM_OFF, NULL, hdr,
-			    ZIO_PRIORITY_ASYNC_WRITE,
-			    ZIO_FLAG_CANFAIL, B_FALSE);
-
-			write_lsize += HDR_GET_LSIZE(hdr);
-			DTRACE_PROBE2(l2arc__write, vdev_t *, dev->l2ad_vdev,
-			    zio_t *, wzio);
-
-			write_psize += psize;
-			write_asize += asize;
-			dev->l2ad_hand += asize;
-			l2arc_hdr_arcstats_increment(hdr);
-			vdev_space_update(dev->l2ad_vdev, asize, 0, 0);
-
-			mutex_exit(hash_lock);
-
+			cb = kmem_alloc(
+			    sizeof (l2arc_write_callback_t), KM_SLEEP);
+			cb->l2wcb_dev = dev;
+			cb->l2wcb_head = head;
 			/*
-			 * Append buf info to current log and commit if full.
-			 * arcstat_l2_{size,asize} kstats are updated
-			 * internally.
+			 * Create a list to save allocated abd buffers
+			 * for l2arc_log_blk_commit().
 			 */
-			if (l2arc_log_blk_insert(dev, hdr)) {
-				/*
-				 * l2ad_hand will be adjusted in
-				 * l2arc_log_blk_commit().
-				 */
-				write_asize +=
-				    l2arc_log_blk_commit(dev, pio, cb);
-			}
-
-			zio_nowait(wzio);
+			list_create(&cb->l2wcb_abd_list,
+			    sizeof (l2arc_lb_abd_buf_t),
+			    offsetof(l2arc_lb_abd_buf_t, node));
+			pio = zio_root(spa, l2arc_write_done, cb,
+			    ZIO_FLAG_CANFAIL);
 		}
 
-		multilist_sublist_unlock(mls);
+		hdr->b_l2hdr.b_dev = dev;
+		hdr->b_l2hdr.b_hits = 0;
 
-		if (full == B_TRUE)
-			break;
+		hdr->b_l2hdr.b_daddr = dev->l2ad_hand;
+		hdr->b_l2hdr.b_arcs_state =
+		    hdr->b_l1hdr.b_state->arcs_state;
+		arc_hdr_set_flags(hdr, ARC_FLAG_HAS_L2HDR);
+
+		mutex_enter(&dev->l2ad_mtx);
+		list_insert_head(&dev->l2ad_buflist, hdr);
+		mutex_exit(&dev->l2ad_mtx);
+
+		(void) zfs_refcount_add_many(&dev->l2ad_alloc,
+		    arc_hdr_size(hdr), hdr);
+
+		wzio = zio_write_phys(pio, dev->l2ad_vdev,
+		    hdr->b_l2hdr.b_daddr, asize, to_write,
+		    ZIO_CHECKSUM_OFF, NULL, hdr,
+		    ZIO_PRIORITY_ASYNC_WRITE,
+		    ZIO_FLAG_CANFAIL, B_FALSE);
+
+		write_lsize += HDR_GET_LSIZE(hdr);
+		DTRACE_PROBE2(l2arc__write, vdev_t *, dev->l2ad_vdev,
+		    zio_t *, wzio);
+
+		write_psize += psize;
+		write_asize += asize;
+		dev->l2ad_hand += asize;
+		l2arc_hdr_arcstats_increment(hdr);
+		vdev_space_update(dev->l2ad_vdev, asize, 0, 0);
+
+		mutex_exit(hash_lock);
+
+		/*
+		 * Append buf info to current log and commit if full.
+		 * arcstat_l2_{size,asize} kstats are updated
+		 * internally.
+		 */
+		if (l2arc_log_blk_insert(dev, hdr)) {
+			/*
+			 * l2ad_hand will be adjusted in
+			 * l2arc_log_blk_commit().
+			 */
+			write_asize +=
+			    l2arc_log_blk_commit(dev, pio, cb);
+		}
+
+		zio_nowait(wzio);
 	}
+
+	/*
+#ifdef _KERNEL
+	end = gethrtime();
+	cmn_err(CE_NOTE, "time: %llu", end-start);
+#endif
+	*/
 
 	/* No buffers selected for writing? */
 	if (pio == NULL) {
@@ -10880,9 +10820,6 @@ ZFS_MODULE_PARAM(zfs_l2arc, l2arc_, rebuild_enabled, INT, ZMOD_RW,
 
 ZFS_MODULE_PARAM(zfs_l2arc, l2arc_, rebuild_blocks_min_l2size, U64, ZMOD_RW,
 	"Min size in bytes to write rebuild log blocks in L2ARC");
-
-ZFS_MODULE_PARAM(zfs_l2arc, l2arc_, mfuonly, INT, ZMOD_RW,
-	"Cache only MFU data from ARC into L2ARC");
 
 ZFS_MODULE_PARAM(zfs_l2arc, l2arc_, exclude_special, INT, ZMOD_RW,
 	"Exclude dbufs on special vdevs from being cached to L2ARC if set.");
