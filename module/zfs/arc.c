@@ -911,6 +911,8 @@ int l2arc_exclude_special = 0;
  */
 static int l2arc_mfuonly = 0;
 
+static uint64_t dump_proc = 0;
+
 /*
  * L2ARC TRIM
  * l2arc_trim_ahead : A ZFS module parameter that controls how much ahead of
@@ -9050,6 +9052,195 @@ l2arc_write_buffers(spa_t *spa, l2arc_dev_t *dev, uint64_t target_sz)
 	arc_hdr_set_flags(head, ARC_FLAG_L2_WRITE_HEAD | ARC_FLAG_HAS_L2HDR);
 	marker = arc_state_alloc_marker();
 
+	if (l2arc_headroom == 0) {
+		// cmn_err(CE_NOTE, "hash: %llu", (u_longlong_t)dump_proc);
+		if (dump_proc > buf_hash_table.ht_mask) {
+			dump_proc = 0;
+			cmn_err(CE_NOTE, "pass over ARC complete");
+		}
+	/*
+#ifdef _KERNEL
+	 * Sweeping the full buf cache takes about 1.5-10 msecs on a machine
+	 * with 8Gb RAM.
+	hrtime_t start, end;
+	start = gethrtime();
+#endif
+	 */
+		for (; dump_proc <= buf_hash_table.ht_mask; dump_proc++) {
+			kmutex_t *hash_lock;
+			abd_t *to_write = NULL;
+
+			hdr = buf_hash_table.ht_table[dump_proc];
+			if (hdr == NULL)
+				continue;
+
+			hash_lock = HDR_LOCK(hdr);
+			if (!mutex_tryenter(hash_lock)) {
+				/*
+				 * Skip this buffer rather than waiting.
+				 */
+				continue;
+			}
+
+			if (!l2arc_write_eligible(guid, hdr)) {
+				mutex_exit(hash_lock);
+				continue;
+			}
+
+			ASSERT(HDR_HAS_L1HDR(hdr));
+
+			ASSERT3U(HDR_GET_PSIZE(hdr), >, 0);
+			ASSERT3U(arc_hdr_size(hdr), >, 0);
+			ASSERT(hdr->b_l1hdr.b_pabd != NULL ||
+			    HDR_HAS_RABD(hdr));
+			uint64_t psize = HDR_GET_PSIZE(hdr);
+			uint64_t asize = vdev_psize_to_asize(dev->l2ad_vdev,
+			    psize);
+
+			/*
+			 * If the allocated size of this buffer plus the max
+			 * size for the pending log block exceeds the evicted
+			 * target size, terminate writing buffers for this run.
+			 */
+			if (write_asize + asize +
+			    sizeof (l2arc_log_blk_phys_t) > target_sz) {
+				mutex_exit(hash_lock);
+				break;
+			}
+
+			/*
+			 * We rely on the L1 portion of the header below, so
+			 * it's invalid for this header to have been evicted out
+			 * of the ghost cache, prior to being written out. The
+			 * ARC_FLAG_L2_WRITING bit ensures this won't happen.
+			 */
+			arc_hdr_set_flags(hdr, ARC_FLAG_L2_WRITING);
+
+			/*
+			 * If this header has b_rabd, we can use this since it
+			 * must always match the data exactly as it exists on
+			 * disk. Otherwise, the L2ARC can normally use the
+			 * hdr's data, but if we're sharing data between the
+			 * hdr and one of its bufs, L2ARC needs its own copy of
+			 * the data so that the ZIO below can't race with the
+			 * buf consumer. To ensure that this copy will be
+			 * available for the lifetime of the ZIO and be cleaned
+			 * up afterwards, we add it to the l2arc_free_on_write
+			 * queue. If we need to apply any transforms to the
+			 * data (compression, encryption) we will also need the
+			 * extra buffer.
+			 */
+			if (HDR_HAS_RABD(hdr) && psize == asize) {
+				to_write = hdr->b_crypt_hdr.b_rabd;
+			} else if ((HDR_COMPRESSION_ENABLED(hdr) ||
+			    HDR_GET_COMPRESS(hdr) == ZIO_COMPRESS_OFF) &&
+			    !HDR_ENCRYPTED(hdr) && !HDR_SHARED_DATA(hdr) &&
+			    psize == asize) {
+				to_write = hdr->b_l1hdr.b_pabd;
+			} else {
+				int ret;
+				arc_buf_contents_t type = arc_buf_type(hdr);
+
+				ret = l2arc_apply_transforms(spa, hdr, asize,
+				    &to_write);
+				if (ret != 0) {
+					arc_hdr_clear_flags(hdr,
+					    ARC_FLAG_L2_WRITING);
+					mutex_exit(hash_lock);
+					continue;
+				}
+
+				l2arc_free_abd_on_write(to_write, asize, type);
+			}
+
+			if (to_write == NULL) {
+				arc_hdr_clear_flags(hdr, ARC_FLAG_L2_WRITING);
+				mutex_exit(hash_lock);
+				continue;
+			}
+
+			if (pio == NULL) {
+				/*
+				 * Insert a dummy header on the buflist so
+				 * l2arc_write_done() can find where the
+				 * write buffers begin without searching.
+				 */
+				mutex_enter(&dev->l2ad_mtx);
+				list_insert_head(&dev->l2ad_buflist, head);
+				mutex_exit(&dev->l2ad_mtx);
+
+				cb = kmem_alloc(
+				    sizeof (l2arc_write_callback_t), KM_SLEEP);
+				cb->l2wcb_dev = dev;
+				cb->l2wcb_head = head;
+				/*
+				 * Create a list to save allocated abd buffers
+				 * for l2arc_log_blk_commit().
+				 */
+				list_create(&cb->l2wcb_abd_list,
+				    sizeof (l2arc_lb_abd_buf_t),
+				    offsetof(l2arc_lb_abd_buf_t, node));
+				pio = zio_root(spa, l2arc_write_done, cb,
+				    ZIO_FLAG_CANFAIL);
+			}
+
+			hdr->b_l2hdr.b_dev = dev;
+			hdr->b_l2hdr.b_hits = 0;
+
+			hdr->b_l2hdr.b_daddr = dev->l2ad_hand;
+			hdr->b_l2hdr.b_arcs_state =
+			    hdr->b_l1hdr.b_state->arcs_state;
+			arc_hdr_set_flags(hdr, ARC_FLAG_HAS_L2HDR);
+
+			mutex_enter(&dev->l2ad_mtx);
+			list_insert_head(&dev->l2ad_buflist, hdr);
+			mutex_exit(&dev->l2ad_mtx);
+
+			(void) zfs_refcount_add_many(&dev->l2ad_alloc,
+			    arc_hdr_size(hdr), hdr);
+
+			wzio = zio_write_phys(pio, dev->l2ad_vdev,
+			    hdr->b_l2hdr.b_daddr, asize, to_write,
+			    ZIO_CHECKSUM_OFF, NULL, hdr,
+			    ZIO_PRIORITY_ASYNC_WRITE,
+			    ZIO_FLAG_CANFAIL, B_FALSE);
+
+			DTRACE_PROBE2(l2arc__write, vdev_t *, dev->l2ad_vdev,
+			    zio_t *, wzio);
+
+			write_psize += psize;
+			write_asize += asize;
+			dev->l2ad_hand += asize;
+			l2arc_hdr_arcstats_increment(hdr);
+			vdev_space_update(dev->l2ad_vdev, asize, 0, 0);
+
+			mutex_exit(hash_lock);
+
+			/*
+			 * Append buf info to current log and commit if full.
+			 * arcstat_l2_{size,asize} kstats are updated
+			 * internally.
+			 */
+			if (l2arc_log_blk_insert(dev, hdr)) {
+				/*
+				 * l2ad_hand will be adjusted in
+				 * l2arc_log_blk_commit().
+				 */
+				write_asize +=
+				    l2arc_log_blk_commit(dev, pio, cb);
+			}
+
+			zio_nowait(wzio);
+		}
+	/*
+#ifdef _KERNEL
+	end = gethrtime();
+	cmn_err(CE_NOTE, "time: %llu", end-start);
+#endif
+	*/
+		goto loop_done;
+	}
+
 	/*
 	 * Copy buffers for L2ARC writing.
 	 */
@@ -9100,7 +9291,7 @@ skip:
 			}
 
 			passed_sz += HDR_GET_LSIZE(hdr);
-			if (l2arc_headroom != 0 && passed_sz > headroom) {
+			if (passed_sz > headroom) {
 				/*
 				 * Searched too far.
 				 */
@@ -9261,6 +9452,7 @@ next:
 
 	arc_state_free_marker(marker);
 
+loop_done:
 	/* No buffers selected for writing? */
 	if (pio == NULL) {
 		ASSERT0(write_psize);
