@@ -2406,6 +2406,7 @@ dmu_send_impl(struct dmu_send_params *dspp)
 		err = arc_untransform(os->os_phys_buf, os->os_spa,
 		    &zb, B_FALSE);
 		if (err != 0) {
+			cmn_err(CE_NOTE, "dmu_send fails");
 			dsl_pool_rele(dp, tag);
 			return (err);
 		}

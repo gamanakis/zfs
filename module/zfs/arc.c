@@ -311,6 +311,7 @@
 #include <sys/vdev_trim.h>
 #include <sys/zfs_racct.h>
 #include <sys/zstd/zstd.h>
+#include <sys/debug.h>
 
 #ifndef _KERNEL
 /* set with ZFS_DEBUG=watch, to enable watchpoints on frozen buffers */
@@ -1933,8 +1934,10 @@ arc_fill_hdr_crypt(arc_buf_hdr_t *hdr, kmutex_t *hash_lock, spa_t *spa,
 		 * not been authenticated yet. Verify the MAC now if we can.
 		 */
 		ret = arc_hdr_authenticate(hdr, spa, zb->zb_objset);
-		if (ret != 0)
+		if (ret != 0) {
+			cmn_err(CE_NOTE, "fail 1-2-1");
 			goto error;
+		}
 	} else if (HDR_HAS_RABD(hdr) && hdr->b_l1hdr.b_pabd == NULL) {
 		/*
 		 * If we only have the encrypted version of the data, but the
@@ -2045,6 +2048,12 @@ arc_buf_fill(arc_buf_t *buf, spa_t *spa, const zbookmark_phys_t *zb,
 			arc_hdr_set_flags(hdr, ARC_FLAG_IO_ERROR);
 			if (hash_lock != NULL)
 				mutex_exit(hash_lock);
+
+			cmn_err(CE_NOTE, "fail 1-2");
+			cmn_err(CE_NOTE, "ZBookmark: objset=%llu object=%llu level=%lld blkid=%llu",
+			    (u_longlong_t)zb->zb_objset, (u_longlong_t)zb->zb_object,
+			    (longlong_t)zb->zb_level, (u_longlong_t)zb->zb_blkid);
+
 			return (error);
 		}
 	}
@@ -2205,6 +2214,11 @@ arc_untransform(arc_buf_t *buf, spa_t *spa, const zbookmark_phys_t *zb,
 		spa_log_error(spa, zb, buf->b_hdr->b_birth);
 		(void) zfs_ereport_post(FM_EREPORT_ZFS_AUTHENTICATION,
 		    spa, NULL, zb, NULL, 0);
+		cmn_err(CE_NOTE, "fail 1\n");
+#ifdef _KERNEL
+		spl_dumpstack();
+#endif
+		//dump_stack();
 	}
 
 	return (ret);
@@ -5519,6 +5533,7 @@ arc_read_done(zio_t *zio)
 				(void) zfs_ereport_post(
 				    FM_EREPORT_ZFS_AUTHENTICATION,
 				    zio->io_spa, NULL, &acb->acb_zb, zio, 0);
+				cmn_err(CE_NOTE, "fail 2\n");
 			}
 		}
 
@@ -5855,6 +5870,10 @@ top:
 					(void) zfs_ereport_post(
 					    FM_EREPORT_ZFS_AUTHENTICATION,
 					    spa, NULL, zb, NULL, 0);
+					cmn_err(CE_NOTE, "fail 3\n");
+#if _KERNEL
+					spl_dumpstack();
+#endif
 				}
 			}
 			if (rc != 0) {

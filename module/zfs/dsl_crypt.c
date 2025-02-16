@@ -28,6 +28,7 @@
 #include <sys/spa_impl.h>
 #include <sys/dmu_objset.h>
 #include <sys/zvol.h>
+#include <sys/debug.h>
 
 /*
  * This file's primary purpose is for managing master encryption keys in
@@ -2831,6 +2832,7 @@ spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, const zbookmark_phys_t *zb,
 	int ret;
 	dsl_crypto_key_t *dck = NULL;
 	uint8_t *plainbuf = NULL, *cipherbuf = NULL;
+	const uint8_t zeroed_mac[ZIO_DATA_MAC_LEN] = {0};
 
 	ASSERT(spa_feature_is_active(spa, SPA_FEATURE_ENCRYPTION));
 
@@ -2876,6 +2878,25 @@ spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, const zbookmark_phys_t *zb,
 	/* call lower level function to perform encryption / decryption */
 	ret = zio_do_crypt_data(encrypt, &dck->dck_key, ot, bswap, salt, iv,
 	    mac, datalen, plainbuf, cipherbuf, no_crypt);
+
+	if (ret == ECKSUM) {
+		if (memcmp(mac, zeroed_mac, ZIO_DATA_MAC_LEN) != 0) {
+			cmn_err(CE_NOTE, "MAC IS NOT ZEROED OUT!");
+		}
+
+		cmn_err(CE_NOTE,
+		    "(%i, %s, %p, %d, %p, %p, %u, %s, %p, %p, %d)\n",
+		    ret,
+		    encrypt ? "encrypt" : "decrypt",
+		    salt, ot, iv, mac, datalen,
+		    bswap ? "byteswap" : "native_endian", plainbuf,
+		    cipherbuf, *no_crypt);
+
+		cmn_err(CE_NOTE, "\tkey = {");
+		for (int i = 0; i < dck->dck_key.zk_current_key.ck_length/8; i++)
+			cmn_err(CE_NOTE, "%02x ", ((uint8_t *)dck->dck_key.zk_current_key.ck_data)[i]);
+		cmn_err(CE_NOTE, "do_crypt fails");
+	}
 
 	/*
 	 * Handle injected decryption faults. Unfortunately, we cannot inject

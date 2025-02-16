@@ -197,6 +197,7 @@ zfs_get_deleteq(objset_t *os)
 	VERIFY0(dmu_object_info(os, MASTER_NODE_OBJ, &doi));
 	ASSERT3U(doi.doi_type, ==, DMU_OT_MASTER_NODE);
 
+	cmn_err(CE_NOTE, "HIT 1 1 1 1 1\n");
 	VERIFY0(zap_lookup(os, MASTER_NODE_OBJ,
 	    ZFS_UNLINKED_SET, sizeof (uint64_t), 1, &deleteq_obj));
 

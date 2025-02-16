@@ -695,6 +695,7 @@ error:
 			    BP_GET_LOGICAL_BIRTH(zio->io_bp));
 			(void) zfs_ereport_post(FM_EREPORT_ZFS_AUTHENTICATION,
 			    spa, NULL, &zio->io_bookmark, zio, 0);
+			cmn_err(CE_NOTE, "fail 4\n");
 		}
 	} else {
 		zio->io_error = ret;

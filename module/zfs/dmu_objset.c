@@ -804,8 +804,10 @@ dmu_objset_own_impl(dsl_dataset_t *ds, dmu_objset_type_t type,
 		    ZB_ROOT_LEVEL, ZB_ROOT_BLKID);
 		err = arc_untransform((*osp)->os_phys_buf, (*osp)->os_spa,
 		    &zb, B_FALSE);
-		if (err != 0)
+		if (err != 0) {
+			cmn_err(CE_NOTE, "dmu_objset_own_impl fails");
 			return (err);
+		}
 
 		ASSERT0(arc_is_unauthenticated((*osp)->os_phys_buf));
 	}

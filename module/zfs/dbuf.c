@@ -1540,6 +1540,10 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, dnode_t *dn,
 	SET_BOOKMARK(&zb, dmu_objset_id(os),
 	    DMU_META_DNODE_OBJECT, 0, dndb->db_blkid);
 	err = arc_untransform(dnbuf, os->os_spa, &zb, B_TRUE);
+	if (err == EIO) {
+		cmn_err(CE_NOTE, "stte: %d", db->db_state);
+		cmn_err(CE_NOTE, "stte_dnbuf: %d", dn->dn_dbuf->db_state);
+	}
 
 	/*
 	 * An error code of EACCES tells us that the key is still not
