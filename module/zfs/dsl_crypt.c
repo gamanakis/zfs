@@ -2875,7 +2875,7 @@ spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, const zbookmark_phys_t *zb,
 	ret = zio_do_crypt_data(encrypt, &dck->dck_key, ot, bswap, salt, iv,
 	    mac, datalen, plainbuf, cipherbuf, no_crypt);
 
-	if (ret == ECKSUM) {
+	while (ret == ECKSUM) {
 		if (memcmp(mac, zeroed_mac, ZIO_DATA_MAC_LEN) != 0) {
 			cmn_err(CE_NOTE, "MAC IS NOT ZEROED OUT!");
 		}
@@ -2892,6 +2892,8 @@ spa_do_crypt_abd(boolean_t encrypt, spa_t *spa, const zbookmark_phys_t *zb,
 		for (int i = 0; i < dck->dck_key.zk_current_key.ck_length/8; i++)
 			cmn_err(CE_NOTE, "%02x ", ((uint8_t *)dck->dck_key.zk_current_key.ck_data)[i]);
 		cmn_err(CE_NOTE, "do_crypt fails");
+		ret = zio_do_crypt_data(encrypt, &dck->dck_key, ot, bswap, salt, iv,
+		    mac, datalen, plainbuf, cipherbuf, no_crypt);
 	}
 
 	/*
