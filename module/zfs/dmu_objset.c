@@ -85,13 +85,6 @@ krwlock_t os_lock;
  */
 static const int dmu_find_threads = 0;
 
-/*
- * Backfill lower metadnode objects after this many have been freed.
- * Backfilling negatively impacts object creation rates, so only do it
- * if there are enough holes to fill.
- */
-static const int dmu_rescan_dnode_threshold = 1 << DN_MAX_INDBLKSHIFT;
-
 static const char *upgrade_tag = "upgrade_tag";
 
 static void dmu_objset_find_dp_cb(void *arg);
@@ -1723,12 +1716,6 @@ sync_meta_dnode_task(void *arg)
 	while ((dr = list_remove_head(list)) != NULL) {
 		ASSERT0(dr->dr_dbuf->db_level);
 		zio_nowait(dr->dr_zio);
-	}
-
-	/* Enable dnode backfill if enough objects have been freed. */
-	if (os->os_freed_dnodes >= dmu_rescan_dnode_threshold) {
-		os->os_rescan_dnodes = B_TRUE;
-		os->os_freed_dnodes = 0;
 	}
 
 	/*
