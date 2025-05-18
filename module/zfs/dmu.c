@@ -83,7 +83,7 @@ static uint_t zfs_per_txg_dirty_frees_percent = 30;
  * Disabling this option will result in holes never being reported in dirty
  * files which is always safe.
  */
-static int zfs_dmu_offset_next_sync = 1;
+static int zfs_dmu_offset_next_sync = 0;
 
 /*
  * Limit the amount we can prefetch with one call to this amount.  This
