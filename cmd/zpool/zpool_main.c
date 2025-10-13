@@ -8938,7 +8938,11 @@ print_scan_scrub_resilver_status(pool_scan_stat_t *ps)
 	pass_scanned = ps->pss_pass_exam;
 	issued = ps->pss_issued;
 	pass_issued = ps->pss_pass_issued;
-	total_s = ps->pss_to_examine;
+	if (ps->pss_partial) {
+		total_s = issued;
+	} else {
+		total_s = ps->pss_to_examine;
+	}
 	total_i = ps->pss_to_examine - ps->pss_skipped;
 
 	/* we are only done with a block once we have issued the IO for it */
