@@ -2783,12 +2783,13 @@ out:
  */
 int
 zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func, pool_scrub_cmd_t cmd) {
-	return (zpool_scan_range(zhp, func, cmd, 0, 0));
+	return (zpool_scan_range(zhp, func, cmd, 0, 0, 0));
 }
 
 int
 zpool_scan_range(zpool_handle_t *zhp, pool_scan_func_t func,
-    pool_scrub_cmd_t cmd, time_t date_start, time_t date_end)
+    pool_scrub_cmd_t cmd, pool_scrub_flags_t flags,
+    time_t date_start, time_t date_end)
 {
 	char errbuf[ERRBUFLEN];
 	int err;
@@ -2797,15 +2798,20 @@ zpool_scan_range(zpool_handle_t *zhp, pool_scan_func_t func,
 	nvlist_t *args = fnvlist_alloc();
 	fnvlist_add_uint64(args, "scan_type", (uint64_t)func);
 	fnvlist_add_uint64(args, "scan_command", (uint64_t)cmd);
-	fnvlist_add_uint64(args, "scan_date_start", (uint64_t)date_start);
-	fnvlist_add_uint64(args, "scan_date_end", (uint64_t)date_end);
+	if (flags != 0)
+		fnvlist_add_uint64(args, "scan_flags", (uint64_t)flags);
+	if (date_start != 0 || date_end != 0) {
+		fnvlist_add_uint64(args, "scan_date_start",
+		    (uint64_t)date_start);
+		fnvlist_add_uint64(args, "scan_date_end", (uint64_t)date_end);
+	}
 
 	err = lzc_scrub(ZFS_IOC_POOL_SCRUB, zhp->zpool_name, args, NULL);
 	fnvlist_free(args);
 
 	if (err == 0) {
 		return (0);
-	} else if (err == ZFS_ERR_IOC_CMD_UNAVAIL) {
+	} else if (err == ZFS_ERR_IOC_CMD_UNAVAIL && flags == 0) {
 		zfs_cmd_t zc = {"\0"};
 		(void) strlcpy(zc.zc_name, zhp->zpool_name,
 		    sizeof (zc.zc_name));
